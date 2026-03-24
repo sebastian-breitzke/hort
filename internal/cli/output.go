@@ -16,7 +16,7 @@ func FormatList(entries []store.EntryInfo, jsonOutput bool) string {
 	}
 
 	if len(entries) == 0 {
-		return "No entries found."
+		return "No entries found.\n"
 	}
 
 	var b strings.Builder
@@ -26,7 +26,12 @@ func FormatList(entries []store.EntryInfo, jsonOutput bool) string {
 		if desc == "" {
 			desc = "(no description)"
 		}
-		fmt.Fprintf(&b, "%-8s %-30s %s  [%s]\n", e.Type, e.Name, desc, envs)
+
+		line := fmt.Sprintf("%-8s %-30s %s  [env: %s]", e.Type, e.Name, desc, envs)
+		if len(e.Contexts) > 0 {
+			line += fmt.Sprintf("  [ctx: %s]", strings.Join(e.Contexts, ", "))
+		}
+		b.WriteString(line + "\n")
 	}
 	return b.String()
 }
@@ -43,6 +48,9 @@ func FormatDescribe(entry *store.EntryInfo, jsonOutput bool) string {
 	fmt.Fprintf(&b, "Type:         %s\n", entry.Type)
 	fmt.Fprintf(&b, "Description:  %s\n", entry.Description)
 	fmt.Fprintf(&b, "Environments: %s\n", strings.Join(entry.Environments, ", "))
+	if len(entry.Contexts) > 0 {
+		fmt.Fprintf(&b, "Contexts:     %s\n", strings.Join(entry.Contexts, ", "))
+	}
 	return b.String()
 }
 
@@ -68,5 +76,19 @@ func FormatStatus(unlocked bool, vaultPath string, secretCount, configCount int,
 	fmt.Fprintf(&b, "Vault:    %s\n", vaultPath)
 	fmt.Fprintf(&b, "Secrets:  %d\n", secretCount)
 	fmt.Fprintf(&b, "Configs:  %d\n", configCount)
+	return b.String()
+}
+
+// FormatContextValues formats context→value map for human or JSON output.
+func FormatContextValues(values map[string]string, jsonOutput bool) string {
+	if jsonOutput {
+		data, _ := json.MarshalIndent(values, "", "  ")
+		return string(data)
+	}
+
+	var b strings.Builder
+	for ctx, val := range values {
+		fmt.Fprintf(&b, "%-20s %s\n", ctx, val)
+	}
 	return b.String()
 }

@@ -14,14 +14,13 @@ const ExitLocked = 2
 
 // ReadPassphrase reads a passphrase from HORT_PASSPHRASE env var or terminal (no echo).
 func ReadPassphrase(prompt string) ([]byte, error) {
-	// Allow env var override for automation and CI
 	if env := os.Getenv("HORT_PASSPHRASE"); env != "" {
 		return []byte(env), nil
 	}
 
 	fmt.Fprint(os.Stderr, prompt)
 	pass, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Fprintln(os.Stderr) // newline after hidden input
+	fmt.Fprintln(os.Stderr)
 	if err != nil {
 		return nil, fmt.Errorf("reading passphrase: %w", err)
 	}
@@ -45,7 +44,6 @@ func CmdInit(restore bool) error {
 	}
 
 	if !restore {
-		// Confirm passphrase for new vault
 		confirm, err := ReadPassphrase("Confirm passphrase: ")
 		if err != nil {
 			return err
@@ -56,7 +54,6 @@ func CmdInit(restore bool) error {
 	}
 
 	if restore && exists {
-		// Verify passphrase against existing vault
 		key, err := vault.UnlockVault(pass)
 		if err != nil {
 			return err
@@ -68,7 +65,6 @@ func CmdInit(restore bool) error {
 		return nil
 	}
 
-	// Create new vault
 	key, err := vault.CreateVault(pass)
 	if err != nil {
 		return err
@@ -152,14 +148,14 @@ func CmdStatus(jsonOutput bool) error {
 }
 
 // CmdGetSecret retrieves a secret.
-func CmdGetSecret(name, env string) error {
+func CmdGetSecret(name, env, context string) error {
 	s, err := store.NewFromSession()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(ExitLocked)
 	}
 
-	val, err := s.GetSecret(name, env)
+	val, err := s.GetSecret(name, env, context)
 	if err != nil {
 		return err
 	}
@@ -169,14 +165,14 @@ func CmdGetSecret(name, env string) error {
 }
 
 // CmdGetConfig retrieves a config.
-func CmdGetConfig(name, env string) error {
+func CmdGetConfig(name, env, context string) error {
 	s, err := store.NewFromSession()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(ExitLocked)
 	}
 
-	val, err := s.GetConfig(name, env)
+	val, err := s.GetConfig(name, env, context)
 	if err != nil {
 		return err
 	}
@@ -186,14 +182,14 @@ func CmdGetConfig(name, env string) error {
 }
 
 // CmdSetSecret stores a secret.
-func CmdSetSecret(name, value, env, description string) error {
+func CmdSetSecret(name, value, env, context, description string) error {
 	s, err := store.NewFromSession()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(ExitLocked)
 	}
 
-	if err := s.SetSecret(name, value, env, description); err != nil {
+	if err := s.SetSecret(name, value, env, context, description); err != nil {
 		return err
 	}
 
@@ -202,14 +198,14 @@ func CmdSetSecret(name, value, env, description string) error {
 }
 
 // CmdSetConfig stores a config.
-func CmdSetConfig(name, value, env, description string) error {
+func CmdSetConfig(name, value, env, context, description string) error {
 	s, err := store.NewFromSession()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(ExitLocked)
 	}
 
-	if err := s.SetConfig(name, value, env, description); err != nil {
+	if err := s.SetConfig(name, value, env, context, description); err != nil {
 		return err
 	}
 
@@ -251,15 +247,15 @@ func CmdDescribe(name string, jsonOutput bool) error {
 	return nil
 }
 
-// CmdDelete removes an entry or environment override.
-func CmdDelete(name, env string) error {
+// CmdDelete removes an entry or specific env/context combination.
+func CmdDelete(name, env, context string) error {
 	s, err := store.NewFromSession()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(ExitLocked)
 	}
 
-	if err := s.Delete(name, env); err != nil {
+	if err := s.Delete(name, env, context); err != nil {
 		return err
 	}
 

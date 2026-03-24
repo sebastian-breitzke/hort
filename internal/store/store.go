@@ -3,18 +3,18 @@ package store
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/s16e/hort/internal/vault"
 )
 
-const BaselineEnv = "*"
-
 // EntryInfo is a summary of an entry for listing.
 type EntryInfo struct {
-	Name         string
-	Type         string // "secret" or "config"
-	Description  string
-	Environments []string
+	Name         string   `json:"name"`
+	Type         string   `json:"type"`
+	Description  string   `json:"description"`
+	Environments []string `json:"environments"`
+	Contexts     []string `json:"contexts"`
 }
 
 // Store provides high-level operations on the vault.
@@ -36,8 +36,9 @@ func NewFromSession() (*Store, error) {
 	return &Store{key: key}, nil
 }
 
-// GetSecret retrieves a secret value. Falls back to baseline (*) if env-specific value doesn't exist.
-func (s *Store) GetSecret(name, env string) (string, error) {
+// GetSecret retrieves a secret value with env+context fallback.
+// Fallback: env+ctx → env+* → *+*
+func (s *Store) GetSecret(name, env, context string) (string, error) {
 	data, _, err := vault.LoadVault(s.key)
 	if err != nil {
 		return "", err
@@ -48,11 +49,11 @@ func (s *Store) GetSecret(name, env string) (string, error) {
 		return "", fmt.Errorf("secret %q not found", name)
 	}
 
-	return resolveEnv(entry, env)
+	return resolve(entry, env, context)
 }
 
-// GetConfig retrieves a config value. Falls back to baseline (*) if env-specific value doesn't exist.
-func (s *Store) GetConfig(name, env string) (string, error) {
+// GetConfig retrieves a config value with env+context fallback.
+func (s *Store) GetConfig(name, env, context string) (string, error) {
 	data, _, err := vault.LoadVault(s.key)
 	if err != nil {
 		return "", err
@@ -63,15 +64,11 @@ func (s *Store) GetConfig(name, env string) (string, error) {
 		return "", fmt.Errorf("config %q not found", name)
 	}
 
-	return resolveEnv(entry, env)
+	return resolve(entry, env, context)
 }
 
 // SetSecret stores a secret value.
-func (s *Store) SetSecret(name, value, env, description string) error {
-	if env == "" {
-		env = BaselineEnv
-	}
-
+func (s *Store) SetSecret(name, value, env, context, description string) error {
 	data, raw, err := vault.LoadVault(s.key)
 	if err != nil {
 		return err
@@ -80,11 +77,12 @@ func (s *Store) SetSecret(name, value, env, description string) error {
 	entry, ok := data.Secrets[name]
 	if !ok {
 		entry = vault.Entry{
-			Environments: make(map[string]string),
+			Values: make(map[string]string),
 		}
 	}
 
-	entry.Environments[env] = value
+	key := vault.MakeLookupKey(env, context)
+	entry.Values[key] = value
 	if description != "" {
 		entry.Description = description
 	}
@@ -94,11 +92,7 @@ func (s *Store) SetSecret(name, value, env, description string) error {
 }
 
 // SetConfig stores a config value.
-func (s *Store) SetConfig(name, value, env, description string) error {
-	if env == "" {
-		env = BaselineEnv
-	}
-
+func (s *Store) SetConfig(name, value, env, context, description string) error {
 	data, raw, err := vault.LoadVault(s.key)
 	if err != nil {
 		return err
@@ -107,11 +101,12 @@ func (s *Store) SetConfig(name, value, env, description string) error {
 	entry, ok := data.Configs[name]
 	if !ok {
 		entry = vault.Entry{
-			Environments: make(map[string]string),
+			Values: make(map[string]string),
 		}
 	}
 
-	entry.Environments[env] = value
+	key := vault.MakeLookupKey(env, context)
+	entry.Values[key] = value
 	if description != "" {
 		entry.Description = description
 	}
@@ -131,23 +126,13 @@ func (s *Store) List(typeFilter string) ([]EntryInfo, error) {
 
 	if typeFilter == "" || typeFilter == "secret" {
 		for name, entry := range data.Secrets {
-			entries = append(entries, EntryInfo{
-				Name:         name,
-				Type:         "secret",
-				Description:  entry.Description,
-				Environments: sortedKeys(entry.Environments),
-			})
+			entries = append(entries, entryToInfo(name, "secret", entry))
 		}
 	}
 
 	if typeFilter == "" || typeFilter == "config" {
 		for name, entry := range data.Configs {
-			entries = append(entries, EntryInfo{
-				Name:         name,
-				Type:         "config",
-				Description:  entry.Description,
-				Environments: sortedKeys(entry.Environments),
-			})
+			entries = append(entries, entryToInfo(name, "config", entry))
 		}
 	}
 
@@ -169,28 +154,20 @@ func (s *Store) Describe(name string) (*EntryInfo, error) {
 	}
 
 	if entry, ok := data.Secrets[name]; ok {
-		return &EntryInfo{
-			Name:         name,
-			Type:         "secret",
-			Description:  entry.Description,
-			Environments: sortedKeys(entry.Environments),
-		}, nil
+		info := entryToInfo(name, "secret", entry)
+		return &info, nil
 	}
 
 	if entry, ok := data.Configs[name]; ok {
-		return &EntryInfo{
-			Name:         name,
-			Type:         "config",
-			Description:  entry.Description,
-			Environments: sortedKeys(entry.Environments),
-		}, nil
+		info := entryToInfo(name, "config", entry)
+		return &info, nil
 	}
 
 	return nil, fmt.Errorf("entry %q not found", name)
 }
 
-// Delete removes an entry or a specific environment override.
-func (s *Store) Delete(name, env string) error {
+// Delete removes an entry, a specific env+context combination, or all values for an env.
+func (s *Store) Delete(name, env, context string) error {
 	data, raw, err := vault.LoadVault(s.key)
 	if err != nil {
 		return err
@@ -198,7 +175,7 @@ func (s *Store) Delete(name, env string) error {
 
 	deleted := false
 
-	if env == "" {
+	if env == "" && context == "" {
 		// Delete entire entry
 		if _, ok := data.Secrets[name]; ok {
 			delete(data.Secrets, name)
@@ -209,17 +186,17 @@ func (s *Store) Delete(name, env string) error {
 			deleted = true
 		}
 	} else {
-		// Delete specific environment
+		key := vault.MakeLookupKey(env, context)
 		if entry, ok := data.Secrets[name]; ok {
-			if _, envOk := entry.Environments[env]; envOk {
-				delete(entry.Environments, env)
+			if _, exists := entry.Values[key]; exists {
+				delete(entry.Values, key)
 				data.Secrets[name] = entry
 				deleted = true
 			}
 		}
 		if entry, ok := data.Configs[name]; ok {
-			if _, envOk := entry.Environments[env]; envOk {
-				delete(entry.Environments, env)
+			if _, exists := entry.Values[key]; exists {
+				delete(entry.Values, key)
 				data.Configs[name] = entry
 				deleted = true
 			}
@@ -227,39 +204,116 @@ func (s *Store) Delete(name, env string) error {
 	}
 
 	if !deleted {
-		if env == "" {
-			return fmt.Errorf("entry %q not found", name)
-		}
-		return fmt.Errorf("environment %q not found for %q", env, name)
+		return fmt.Errorf("entry %q not found (env=%q, context=%q)", name, env, context)
 	}
 
 	return vault.SaveVault(data, s.key, raw)
 }
 
-func resolveEnv(entry vault.Entry, env string) (string, error) {
+// resolve implements the fallback chain: env+ctx → env+* → *+*
+func resolve(entry vault.Entry, env, context string) (string, error) {
 	if env == "" {
-		env = BaselineEnv
+		env = "*"
+	}
+	if context == "" {
+		context = "*"
 	}
 
-	if val, ok := entry.Environments[env]; ok {
+	// Try exact match: env+context
+	if val, ok := entry.Values[vault.MakeLookupKey(env, context)]; ok {
 		return val, nil
 	}
 
-	// Fallback to baseline
-	if env != BaselineEnv {
-		if val, ok := entry.Environments[BaselineEnv]; ok {
+	// Fallback: env+* (same env, no context)
+	if context != "*" {
+		if val, ok := entry.Values[vault.MakeLookupKey(env, "*")]; ok {
 			return val, nil
 		}
 	}
 
-	return "", fmt.Errorf("no value for environment %q (and no baseline)", env)
+	// Fallback: *+* (baseline)
+	if env != "*" {
+		if val, ok := entry.Values[vault.MakeLookupKey("*", "*")]; ok {
+			return val, nil
+		}
+	}
+
+	return "", fmt.Errorf("no value found (env=%q, context=%q, and no baseline)", env, context)
 }
 
-func sortedKeys(m map[string]string) []string {
+func entryToInfo(name, entryType string, entry vault.Entry) EntryInfo {
+	envSet := make(map[string]bool)
+	ctxSet := make(map[string]bool)
+
+	for key := range entry.Values {
+		env, ctx := vault.ParseLookupKey(key)
+		envSet[env] = true
+		if ctx != "*" {
+			ctxSet[ctx] = true
+		}
+	}
+
+	return EntryInfo{
+		Name:         name,
+		Type:         entryType,
+		Description:  entry.Description,
+		Environments: sortedSetKeys(envSet),
+		Contexts:     sortedSetKeys(ctxSet),
+	}
+}
+
+func sortedSetKeys(m map[string]bool) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// ContextValues returns all context-specific values for an entry+env combination.
+// Used when --context is not specified and the agent wants to see all contexts.
+func (s *Store) ContextValues(name, entryType, env string) (map[string]string, error) {
+	data, _, err := vault.LoadVault(s.key)
+	if err != nil {
+		return nil, err
+	}
+
+	var entries map[string]vault.Entry
+	switch entryType {
+	case "secret":
+		entries = data.Secrets
+	case "config":
+		entries = data.Configs
+	default:
+		// Try both
+		entries = data.Secrets
+		if _, ok := entries[name]; !ok {
+			entries = data.Configs
+		}
+	}
+
+	entry, ok := entries[name]
+	if !ok {
+		return nil, fmt.Errorf("entry %q not found", name)
+	}
+
+	if env == "" {
+		env = "*"
+	}
+
+	result := make(map[string]string)
+	prefix := env + ":"
+	for key, val := range entry.Values {
+		if strings.HasPrefix(key, prefix) {
+			_, ctx := vault.ParseLookupKey(key)
+			result[ctx] = val
+		}
+	}
+
+	if len(result) == 0 {
+		return nil, fmt.Errorf("no values for %q in env %q", name, env)
+	}
+
+	return result, nil
 }

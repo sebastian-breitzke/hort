@@ -7,10 +7,35 @@ import (
 	"path/filepath"
 )
 
+// LookupKey combines environment and context as "env:context".
+// Baseline is "*:*". Environment-only is "prod:*". Full is "prod:heine".
+type LookupKey = string
+
+// MakeLookupKey builds a lookup key from env and context.
+func MakeLookupKey(env, context string) LookupKey {
+	if env == "" {
+		env = "*"
+	}
+	if context == "" {
+		context = "*"
+	}
+	return env + ":" + context
+}
+
+// ParseLookupKey splits a lookup key into env and context.
+func ParseLookupKey(key LookupKey) (env, context string) {
+	for i := 0; i < len(key); i++ {
+		if key[i] == ':' {
+			return key[:i], key[i+1:]
+		}
+	}
+	return key, "*"
+}
+
 // Entry represents a single secret or config entry.
 type Entry struct {
-	Description  string            `json:"description"`
-	Environments map[string]string `json:"environments"`
+	Description string            `json:"description"`
+	Values      map[LookupKey]string `json:"values"`
 }
 
 // VaultData is the decrypted vault content.

@@ -15,6 +15,7 @@ func main() {
 		flagSetSecret string
 		flagSetConfig string
 		flagEnv       string
+		flagContext    string
 		flagValue     string
 		flagDesc      string
 		flagList      bool
@@ -31,12 +32,12 @@ func main() {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Get secret
 			if flagSecret != "" {
-				return cli.CmdGetSecret(flagSecret, flagEnv)
+				return cli.CmdGetSecret(flagSecret, flagEnv, flagContext)
 			}
 
 			// Get config
 			if flagConfig != "" {
-				return cli.CmdGetConfig(flagConfig, flagEnv)
+				return cli.CmdGetConfig(flagConfig, flagEnv, flagContext)
 			}
 
 			// Set secret
@@ -44,7 +45,7 @@ func main() {
 				if flagValue == "" {
 					return fmt.Errorf("--value is required with --set-secret")
 				}
-				return cli.CmdSetSecret(flagSetSecret, flagValue, flagEnv, flagDesc)
+				return cli.CmdSetSecret(flagSetSecret, flagValue, flagEnv, flagContext, flagDesc)
 			}
 
 			// Set config
@@ -52,7 +53,7 @@ func main() {
 				if flagValue == "" {
 					return fmt.Errorf("--value is required with --set-config")
 				}
-				return cli.CmdSetConfig(flagSetConfig, flagValue, flagEnv, flagDesc)
+				return cli.CmdSetConfig(flagSetConfig, flagValue, flagEnv, flagContext, flagDesc)
 			}
 
 			// List
@@ -67,7 +68,7 @@ func main() {
 
 			// Delete
 			if flagDelete != "" {
-				return cli.CmdDelete(flagDelete, flagEnv)
+				return cli.CmdDelete(flagDelete, flagEnv, flagContext)
 			}
 
 			return cmd.Help()
@@ -88,6 +89,7 @@ func main() {
 
 	// Common flags
 	root.Flags().StringVar(&flagEnv, "env", "", "Target environment (default: * baseline)")
+	root.Flags().StringVar(&flagContext, "context", "", "Target context, e.g. tenant/customer (default: * baseline)")
 
 	// Discovery flags
 	root.Flags().BoolVar(&flagList, "list", false, "List all entries")
@@ -96,18 +98,19 @@ func main() {
 	root.Flags().BoolVar(&flagJSON, "json", false, "JSON output for list/describe/status")
 
 	// Delete flag
-	root.Flags().StringVar(&flagDelete, "delete", "", "Delete an entry or environment override")
+	root.Flags().StringVar(&flagDelete, "delete", "", "Delete an entry or specific env/context override")
 
 	// Subcommands
-	root.AddCommand(&cobra.Command{
+	initCmd := &cobra.Command{
 		Use:   "init",
 		Short: "Create a new vault or restore with existing passphrase",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			restore, _ := cmd.Flags().GetBool("restore")
 			return cli.CmdInit(restore)
 		},
-	})
-	root.Commands()[0].Flags().Bool("restore", false, "Restore with existing passphrase")
+	}
+	initCmd.Flags().Bool("restore", false, "Restore with existing passphrase")
+	root.AddCommand(initCmd)
 
 	root.AddCommand(&cobra.Command{
 		Use:   "unlock",
