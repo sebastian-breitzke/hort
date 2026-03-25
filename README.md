@@ -16,25 +16,23 @@ None of this is discoverable. An agent can't ask "what secrets are available?" �
 
 ## Install
 
-Copy-paste the script for your OS. It downloads the latest release, installs the binary, and walks you through creating your vault.
-
-### macOS / Linux
-
-```bash
-VERSION=$(curl -fsSI -o /dev/null -w '%{redirect_url}' https://github.com/sebastian-breitzke/hort/releases/latest | grep -oE '[^/]+$') \
-  && OS=$(uname -s | tr '[:upper:]' '[:lower:]') \
-  && ARCH=$(uname -m | sed 's/x86_64/amd64/') \
-  && curl -fsSL "https://github.com/sebastian-breitzke/hort/releases/download/${VERSION}/hort_${VERSION#v}_${OS}_${ARCH}.tar.gz" \
-  | tar -xz -C /tmp hort \
-  && sudo mv /tmp/hort /usr/local/bin/hort \
-  && echo "✓ hort $(hort --version 2>/dev/null || echo $VERSION) installed at $(which hort)" \
-  && hort init
-```
-
-### macOS (Homebrew)
+### macOS (Homebrew) — recommended
 
 ```bash
 brew install sebastian-breitzke/tap/hort && hort init
+```
+
+Updates: `brew upgrade hort`
+
+### Linux
+
+```bash
+VERSION=$(curl -fsSI -o /dev/null -w '%{redirect_url}' https://github.com/sebastian-breitzke/hort/releases/latest | grep -oE '[^/]+$') \
+  && ARCH=$(uname -m | sed 's/x86_64/amd64/') \
+  && curl -fsSL "https://github.com/sebastian-breitzke/hort/releases/download/${VERSION}/hort_${VERSION#v}_linux_${ARCH}.tar.gz" \
+  | tar -xz -C /tmp hort \
+  && sudo mv /tmp/hort /usr/local/bin/hort \
+  && hort init
 ```
 
 ### Windows (PowerShell)
@@ -43,13 +41,12 @@ brew install sebastian-breitzke/tap/hort && hort init
 $release = (Invoke-RestMethod -Uri "https://api.github.com/repos/sebastian-breitzke/hort/releases/latest").tag_name
 $version = $release.TrimStart("v")
 $url = "https://github.com/sebastian-breitzke/hort/releases/download/$release/hort_${version}_windows_amd64.zip"
-$tmp = "$env:TEMP\hort.zip"
-Invoke-WebRequest -Uri $url -OutFile $tmp
-Expand-Archive -Path $tmp -DestinationPath "$env:LOCALAPPDATA\hort" -Force
+Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\hort.zip"
+Expand-Archive -Path "$env:TEMP\hort.zip" -DestinationPath "$env:LOCALAPPDATA\hort" -Force
 $env:PATH += ";$env:LOCALAPPDATA\hort"
 [Environment]::SetEnvironmentVariable("PATH", "$([Environment]::GetEnvironmentVariable('PATH', 'User'));$env:LOCALAPPDATA\hort", "User")
-Remove-Item $tmp
-Write-Host "✓ hort installed" -ForegroundColor Green
+Remove-Item "$env:TEMP\hort.zip"
+Write-Host "hort installed" -ForegroundColor Green
 hort init
 ```
 
