@@ -26,6 +26,14 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
+brews:
+  - repository:
+      owner: sebastian-breitzke
+      name: homebrew-tap
+    directory: Formula
+    homepage: "https://github.com/sebastian-breitzke/hort"
+    description: "Local secret and config store for humans and AI agents"
+
 changelog:
   sort: asc
   filters:
