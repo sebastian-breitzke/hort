@@ -21,10 +21,13 @@ Copy-paste the script for your OS. It downloads the latest release, installs the
 ### macOS / Linux
 
 ```bash
-curl -fsSL https://github.com/sebastian-breitzke/hort/releases/latest/download/hort_$(uname -s)_$(uname -m).tar.gz \
+VERSION=$(curl -fsSI -o /dev/null -w '%{redirect_url}' https://github.com/sebastian-breitzke/hort/releases/latest | grep -oE '[^/]+$') \
+  && OS=$(uname -s | tr '[:upper:]' '[:lower:]') \
+  && ARCH=$(uname -m | sed 's/x86_64/amd64/') \
+  && curl -fsSL "https://github.com/sebastian-breitzke/hort/releases/download/${VERSION}/hort_${VERSION#v}_${OS}_${ARCH}.tar.gz" \
   | tar -xz -C /tmp hort \
   && sudo mv /tmp/hort /usr/local/bin/hort \
-  && echo "✓ hort installed at $(which hort)" \
+  && echo "✓ hort $(hort --version 2>/dev/null || echo $VERSION) installed at $(which hort)" \
   && hort init
 ```
 
@@ -37,7 +40,9 @@ brew install sebastian-breitzke/tap/hort && hort init
 ### Windows (PowerShell)
 
 ```powershell
-$url = "https://github.com/sebastian-breitzke/hort/releases/latest/download/hort_Windows_x86_64.zip"
+$release = (Invoke-RestMethod -Uri "https://api.github.com/repos/sebastian-breitzke/hort/releases/latest").tag_name
+$version = $release.TrimStart("v")
+$url = "https://github.com/sebastian-breitzke/hort/releases/download/$release/hort_${version}_windows_amd64.zip"
 $tmp = "$env:TEMP\hort.zip"
 Invoke-WebRequest -Uri $url -OutFile $tmp
 Expand-Archive -Path $tmp -DestinationPath "$env:LOCALAPPDATA\hort" -Force
