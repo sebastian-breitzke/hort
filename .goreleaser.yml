@@ -26,21 +26,6 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
-brews:
-  - repository:
-      owner: s16e
-      name: homebrew-tap
-    directory: Formula
-    homepage: "https://github.com/s16e/hort"
-    description: "Local secret and config store for humans and AI agents"
-
-scoops:
-  - repository:
-      owner: s16e
-      name: scoop-bucket
-    homepage: "https://github.com/s16e/hort"
-    description: "Local secret and config store for humans and AI agents"
-
 changelog:
   sort: asc
   filters:
