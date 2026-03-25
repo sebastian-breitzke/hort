@@ -2,7 +2,9 @@
 
 **Local secret and config store for humans and AI agents.**
 
-![Hort Logo](hort.png)
+<p align="center">
+  <img src="hort.png" alt="Hort Logo" width="400">
+</p>
 
 ## Why
 
