@@ -2,7 +2,7 @@
 
 **Local secret and config store for humans and AI agents.**
 
-![Hort Logo](logo-placeholder.png)
+![Hort Logo](hort.png)
 
 ## Why
 
