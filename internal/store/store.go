@@ -69,50 +69,42 @@ func (s *Store) GetConfig(name, env, context string) (string, error) {
 
 // SetSecret stores a secret value.
 func (s *Store) SetSecret(name, value, env, context, description string) error {
-	data, raw, err := vault.LoadVault(s.key)
-	if err != nil {
-		return err
-	}
-
-	entry, ok := data.Secrets[name]
-	if !ok {
-		entry = vault.Entry{
-			Values: make(map[string]string),
+	return vault.UpdateVault(s.key, func(data *vault.VaultData) error {
+		entry, ok := data.Secrets[name]
+		if !ok {
+			entry = vault.Entry{
+				Values: make(map[string]string),
+			}
 		}
-	}
 
-	key := vault.MakeLookupKey(env, context)
-	entry.Values[key] = value
-	if description != "" {
-		entry.Description = description
-	}
-	data.Secrets[name] = entry
-
-	return vault.SaveVault(data, s.key, raw)
+		key := vault.MakeLookupKey(env, context)
+		entry.Values[key] = value
+		if description != "" {
+			entry.Description = description
+		}
+		data.Secrets[name] = entry
+		return nil
+	})
 }
 
 // SetConfig stores a config value.
 func (s *Store) SetConfig(name, value, env, context, description string) error {
-	data, raw, err := vault.LoadVault(s.key)
-	if err != nil {
-		return err
-	}
-
-	entry, ok := data.Configs[name]
-	if !ok {
-		entry = vault.Entry{
-			Values: make(map[string]string),
+	return vault.UpdateVault(s.key, func(data *vault.VaultData) error {
+		entry, ok := data.Configs[name]
+		if !ok {
+			entry = vault.Entry{
+				Values: make(map[string]string),
+			}
 		}
-	}
 
-	key := vault.MakeLookupKey(env, context)
-	entry.Values[key] = value
-	if description != "" {
-		entry.Description = description
-	}
-	data.Configs[name] = entry
-
-	return vault.SaveVault(data, s.key, raw)
+		key := vault.MakeLookupKey(env, context)
+		entry.Values[key] = value
+		if description != "" {
+			entry.Description = description
+		}
+		data.Configs[name] = entry
+		return nil
+	})
 }
 
 // List returns all entries, optionally filtered by type.
@@ -168,46 +160,43 @@ func (s *Store) Describe(name string) (*EntryInfo, error) {
 
 // Delete removes an entry, a specific env+context combination, or all values for an env.
 func (s *Store) Delete(name, env, context string) error {
-	data, raw, err := vault.LoadVault(s.key)
-	if err != nil {
-		return err
-	}
+	return vault.UpdateVault(s.key, func(data *vault.VaultData) error {
+		deleted := false
 
-	deleted := false
-
-	if env == "" && context == "" {
-		// Delete entire entry
-		if _, ok := data.Secrets[name]; ok {
-			delete(data.Secrets, name)
-			deleted = true
-		}
-		if _, ok := data.Configs[name]; ok {
-			delete(data.Configs, name)
-			deleted = true
-		}
-	} else {
-		key := vault.MakeLookupKey(env, context)
-		if entry, ok := data.Secrets[name]; ok {
-			if _, exists := entry.Values[key]; exists {
-				delete(entry.Values, key)
-				data.Secrets[name] = entry
+		if env == "" && context == "" {
+			// Delete entire entry
+			if _, ok := data.Secrets[name]; ok {
+				delete(data.Secrets, name)
 				deleted = true
 			}
-		}
-		if entry, ok := data.Configs[name]; ok {
-			if _, exists := entry.Values[key]; exists {
-				delete(entry.Values, key)
-				data.Configs[name] = entry
+			if _, ok := data.Configs[name]; ok {
+				delete(data.Configs, name)
 				deleted = true
 			}
+		} else {
+			key := vault.MakeLookupKey(env, context)
+			if entry, ok := data.Secrets[name]; ok {
+				if _, exists := entry.Values[key]; exists {
+					delete(entry.Values, key)
+					data.Secrets[name] = entry
+					deleted = true
+				}
+			}
+			if entry, ok := data.Configs[name]; ok {
+				if _, exists := entry.Values[key]; exists {
+					delete(entry.Values, key)
+					data.Configs[name] = entry
+					deleted = true
+				}
+			}
 		}
-	}
 
-	if !deleted {
-		return fmt.Errorf("entry %q not found (env=%q, context=%q)", name, env, context)
-	}
+		if !deleted {
+			return fmt.Errorf("entry %q not found (env=%q, context=%q)", name, env, context)
+		}
 
-	return vault.SaveVault(data, s.key, raw)
+		return nil
+	})
 }
 
 // resolve implements the fallback chain: env+ctx → env+* → *+*

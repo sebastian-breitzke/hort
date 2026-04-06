@@ -215,6 +215,7 @@ internal/
 ### Encryption
 
 Everything lives in a single file: `~/.hort/vault.enc`.
+Writes are serialized with a local file lock, and every successful update keeps the previous encrypted state in `~/.hort/vault.enc.bak`.
 
 **File format** (binary):
 

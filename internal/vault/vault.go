@@ -34,7 +34,7 @@ func ParseLookupKey(key LookupKey) (env, context string) {
 
 // Entry represents a single secret or config entry.
 type Entry struct {
-	Description string            `json:"description"`
+	Description string               `json:"description"`
 	Values      map[LookupKey]string `json:"values"`
 }
 
@@ -120,7 +120,7 @@ func CreateVault(passphrase []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	if err := os.WriteFile(path, encrypted, 0600); err != nil {
+	if err := writeFileAtomic(path, encrypted, 0600); err != nil {
 		return nil, fmt.Errorf("writing vault: %w", err)
 	}
 
@@ -177,7 +177,30 @@ func SaveVault(data *VaultData, key []byte, existingRaw []byte) error {
 		return err
 	}
 
-	return os.WriteFile(path, encrypted, 0600)
+	if err := backupFile(path, 0600); err != nil {
+		return err
+	}
+	return writeFileAtomic(path, encrypted, 0600)
+}
+
+// UpdateVault serializes the full read-modify-write cycle for vault mutations.
+func UpdateVault(key []byte, mutate func(data *VaultData) error) error {
+	unlock, err := lockVault()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = unlock()
+	}()
+
+	data, raw, err := LoadVault(key)
+	if err != nil {
+		return err
+	}
+	if err := mutate(data); err != nil {
+		return err
+	}
+	return SaveVault(data, key, raw)
 }
 
 // UnlockVault decrypts the vault with a passphrase and returns the derived key.
