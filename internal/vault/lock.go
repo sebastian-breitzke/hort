@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"golang.org/x/sys/unix"
 )
 
 // LockPath returns the path to the vault lock file.
@@ -36,20 +34,12 @@ func lockVault() (func() error, error) {
 		return nil, fmt.Errorf("opening vault lock: %w", err)
 	}
 
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX); err != nil {
+	if err := lockFile(file); err != nil {
 		_ = file.Close()
-		return nil, fmt.Errorf("locking vault: %w", err)
+		return nil, err
 	}
 
 	return func() error {
-		unlockErr := unix.Flock(int(file.Fd()), unix.LOCK_UN)
-		closeErr := file.Close()
-		if unlockErr != nil {
-			return fmt.Errorf("unlocking vault: %w", unlockErr)
-		}
-		if closeErr != nil {
-			return fmt.Errorf("closing vault lock: %w", closeErr)
-		}
-		return nil
+		return unlockFile(file)
 	}, nil
 }
