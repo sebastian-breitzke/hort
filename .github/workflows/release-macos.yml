@@ -1,0 +1,138 @@
+name: Release macOS
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version (without v-prefix)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    outputs:
+      version: ${{ steps.vars.outputs.version }}
+      dmg_sha: ${{ steps.shas.outputs.dmg_sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: vars
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "$REF_NAME" == v* ]]; then
+            VERSION="${REF_NAME#v}"
+          else
+            VERSION="$INPUT_VERSION"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Import signing certificate
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 16)
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          echo "$CSC_LINK" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN_PATH" \
+            -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" > /dev/null
+          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychain -d user | xargs)
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+      - name: Build, sign, notarize, DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          BUILD_VERSION: ${{ steps.vars.outputs.version }}
+        run: |
+          ./scripts/build-macos-signed.sh "$BUILD_VERSION" --notarize
+
+      - id: shas
+        env:
+          BUILD_VERSION: ${{ steps.vars.outputs.version }}
+        run: |
+          DMG="dist/hort_${BUILD_VERSION}_darwin_universal.dmg"
+          DMG_SHA=$(shasum -a 256 "$DMG" | awk '{print $1}')
+          echo "dmg_sha=$DMG_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifacts to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILD_VERSION: ${{ steps.vars.outputs.version }}
+        run: |
+          TAG="v${BUILD_VERSION}"
+          TARBALL="dist/hort_${BUILD_VERSION}_darwin_universal.tar.gz"
+          DMG="dist/hort_${BUILD_VERSION}_darwin_universal.dmg"
+          for i in 1 2 3 4 5 6; do
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              gh release upload "$TAG" "$TARBALL" "$DMG" --clobber
+              exit 0
+            fi
+            echo "release $TAG not yet present, waiting..."
+            sleep 10
+          done
+          gh release create "$TAG" "$TARBALL" "$DMG" --title "hort ${BUILD_VERSION}" --generate-notes
+
+  update-cask:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout homebrew-tap
+        uses: actions/checkout@v4
+        with:
+          repository: sebastian-breitzke/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Render and commit cask
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          SHA256: ${{ needs.build.outputs.dmg_sha }}
+        run: |
+          mkdir -p Casks
+          cat > Casks/hort.rb <<CASKEOF
+          cask "hort" do
+            version "${VERSION}"
+            sha256 "${SHA256}"
+
+            url "https://github.com/sebastian-breitzke/hort/releases/download/v#{version}/hort_#{version}_darwin_universal.dmg"
+            name "hort"
+            desc "Local secret and config store for humans and AI agents"
+            homepage "https://github.com/sebastian-breitzke/hort"
+
+            depends_on macos: ">= :catalina"
+
+            app "hort.app"
+
+            zap trash: [
+              "~/.hort",
+            ]
+          end
+          CASKEOF
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A Casks/hort.rb
+          git diff --cached --quiet && exit 0
+          git commit -m "Update hort cask to ${VERSION}"
+          for i in 1 2 3; do
+            git pull --rebase origin main || true
+            if git push origin HEAD:main; then exit 0; fi
+            sleep 5
+          done
+          exit 1
