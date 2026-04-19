@@ -11,12 +11,21 @@ import (
 
 // EntryInfo is a summary of an entry for listing.
 type EntryInfo struct {
-	Name         string   `json:"name"`
-	Source       string   `json:"source"`
-	Type         string   `json:"type"`
-	Description  string   `json:"description"`
-	Environments []string `json:"environments"`
-	Contexts     []string `json:"contexts"`
+	Name         string        `json:"name"`
+	Source       string        `json:"source"`
+	Type         string        `json:"type"`
+	Description  string        `json:"description"`
+	Environments []string      `json:"environments"`
+	Contexts     []string      `json:"contexts"`
+	Variants     []VariantInfo `json:"variants,omitempty"`
+}
+
+// VariantInfo identifies an (env, context) pair that exists for an entry.
+// Values are deliberately excluded so callers that only need structure (UIs,
+// auditors) never materialize secret values without an explicit read.
+type VariantInfo struct {
+	Env     string `json:"env"`
+	Context string `json:"context"`
 }
 
 // Source is an unlocked vault mounted into the active store.
@@ -418,6 +427,7 @@ func resolve(entry vault.Entry, env, context string) (string, bool) {
 func entryToInfo(name, source, entryType string, entry vault.Entry) EntryInfo {
 	envSet := make(map[string]bool)
 	ctxSet := make(map[string]bool)
+	variants := make([]VariantInfo, 0, len(entry.Values))
 
 	for key := range entry.Values {
 		env, ctx := vault.ParseLookupKey(key)
@@ -425,7 +435,14 @@ func entryToInfo(name, source, entryType string, entry vault.Entry) EntryInfo {
 		if ctx != "*" {
 			ctxSet[ctx] = true
 		}
+		variants = append(variants, VariantInfo{Env: env, Context: ctx})
 	}
+	sort.Slice(variants, func(i, j int) bool {
+		if variants[i].Env != variants[j].Env {
+			return variants[i].Env < variants[j].Env
+		}
+		return variants[i].Context < variants[j].Context
+	})
 
 	return EntryInfo{
 		Name:         name,
@@ -434,6 +451,7 @@ func entryToInfo(name, source, entryType string, entry vault.Entry) EntryInfo {
 		Description:  entry.Description,
 		Environments: sortedSetKeys(envSet),
 		Contexts:     sortedSetKeys(ctxSet),
+		Variants:     variants,
 	}
 }
 

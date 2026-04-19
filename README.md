@@ -14,7 +14,26 @@ Here is how that works today: `.env` files scattered across projects. Environmen
 
 None of this is discoverable. An agent can't ask "what secrets are available?" — it has to know upfront or ask you every time. None of it is environment-aware — switching between dev and prod means manual juggling. None of it is secure — plaintext files with credentials sitting in project directories. And none of it works across agents — each tool has its own way of handling credentials, or doesn't handle them at all.
 
-*Hort* — the Nibelungenhort, where the treasure lies — solves this. One encrypted vault, one CLI, all agents, all environments.
+*Hort* — the Nibelungenhort, where the treasure lies — solves this. One encrypted vault, one CLI, all agents, all environments, and a desktop UI when you'd rather click than type.
+
+## Who uses Hort
+
+**You, on your own machine.** Open the desktop app (`brew install --cask sebastian-breitzke/tap/hort`), set a passphrase, add secrets. The cmd strip at the bottom of every view shows the exact `hort …` command the UI is running — so the GUI doubles as a learn-the-CLI tutorial. Any later automation can copy that command verbatim.
+
+**Your AI coding agents.** Claude Code, Codex, Gemini, Cursor, whatever you run. `hort --list` shows them what is available, `hort --secret <name>` gives them the value, `--json` gives it structured. No more "what's the DB password again?" on every new session. One vault, every agent.
+
+**Your own apps, as a drop-in secret backend.** Instead of reinventing a secrets table, mount an encrypted file into hort at startup:
+
+```bash
+# your app on boot
+hort source mount --name myapp-prod \
+  --path ~/.myapp-prod/secrets.hort.enc \
+  --key-hex "$MYAPP_MASTER_KEY_HEX"
+```
+
+Your app reads and writes via the same hort CLI (or the daemon socket) that it already uses for shell automation. The moment you do this, **the agents working on that app pick up the same secrets aus einem guss** — no separate credential system per integration, no copy-paste between the app's UI and the agent's context. Your app's `.env`-equivalent and your agent's `hort --secret` resolve to the same byte.
+
+**Integration code.** Anywhere a script or service needs "this token for dev, that one for prod, a third for the Heine tenant on prod" — the `env + context` fallback chain covers it in one call.
 
 ## Install
 
@@ -80,6 +99,30 @@ unlocked, ready to store secrets.
 For apps that hit hort often, run `hort daemon install` once (macOS launchd /
 Linux systemd user unit). From then on the daemon starts at login, stays
 alive, and every CLI call routes through its Unix socket automatically.
+
+## Desktop UI
+
+A native Tauri app ships alongside the CLI — notarized on macOS, `.deb` / AppImage on Linux.
+
+```bash
+brew install --cask sebastian-breitzke/tap/hort         # macOS (.app, notarized)
+# or download the Hort.app.zip / .deb / .AppImage from the latest GitHub release
+```
+
+The UI talks to the hort daemon over the same Unix socket everything else
+uses — no duplicate state, no shadow vault. What you see in the app is
+exactly what `hort --list` sees on the command line.
+
+**Cmd strip.** Every action — selecting an entry, filtering, writing a
+value, locking, mounting — renders the equivalent `hort …` command at the
+bottom of the window. Copy button included. So the UI is also the fastest
+way to learn the CLI: click first, read the command, use it in a script
+later. No man page drills.
+
+**Empty state is the docs.** Nothing selected? The middle pane shows the
+live output of `hort --help`, rendered section by section. If you add a
+flag to the CLI, the docs in the app update on the next launch — single
+source of truth.
 
 ## Usage
 
@@ -284,11 +327,19 @@ internal/
 │   ├── client.go            Short-lived client with auto-detect
 │   ├── protocol.go          Method names and request/response shape
 │   └── paths.go             Socket / PID / log paths
-└── cli/
-    ├── commands.go          Command implementations (with transparent daemon routing)
-    ├── daemon.go            `hort daemon start/stop/status`
-    ├── help.go              Help text (doubles as agent prompt)
-    └── output.go            Output formatting (plain text + JSON)
+├── cli/
+│   ├── commands.go          Command implementations (with transparent daemon routing)
+│   ├── daemon.go            `hort daemon start/stop/status`
+│   ├── service.go           `hort daemon install/uninstall` (launchd + systemd)
+│   └── output.go            Output formatting (plain text + JSON)
+├── helptext/
+│   └── text.go              The `hort --help` string — served to the CLI, the daemon, and the UI
+└── (...)
+
+ui/                          Tauri v2 desktop app (vanilla JS + Vite)
+├── src/main.js              UI logic (talks to the daemon over its socket)
+├── src/style.css            Terminal-dark theme, gold + green palette
+└── src-tauri/               Rust shell + tauri.conf.json
 ```
 
 ### Encryption

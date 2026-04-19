@@ -44,6 +44,12 @@ HORT_PASSPHRASE="test" ./hort init
 - `internal/cli/service.go` — `hort daemon install/uninstall` (launchd + systemd template rendering)
 - `internal/cli/help.go` — Help text (serves as agent prompt)
 - `internal/cli/output.go` — Output formatting (plain/JSON)
+- `ui/` — Tauri v2 desktop app (vanilla JS + Vite, lesepult stack). Talks to the
+  daemon over its Unix socket (`hort_rpc` command) and mirrors every action
+  back as the equivalent CLI command in an always-visible cmd strip. Shells
+  out to `hort` only for side-effect commands the daemon doesn't own
+  (unlock/lock/mount/daemon start). Released as a separate artifact
+  (Hort.app / .deb / AppImage) via the `ui` job in `.github/workflows/release.yml`.
 - `packaging/packaging.go` — `//go:embed` wrappers exposing the service templates
 - `packaging/launchd/tech.s16e.hort.daemon.plist.tmpl` — rendered by `hort daemon install` on macOS
 - `packaging/systemd/hort-daemon.service.tmpl` — rendered by `hort daemon install` on Linux
@@ -75,7 +81,9 @@ switches to `/Library/LaunchDaemons` / `/etc/systemd/system` (root only).
 
 ## Release
 
-Tag push triggers GoReleaser (binaries + Homebrew) automatically. npm publish is manual:
+Tag push triggers two jobs in `release.yml`: `cli` (goreleaser → binaries +
+Homebrew) and `ui` (tauri-action matrix mac/linux → Hort.app / .deb /
+AppImage). Both attach assets to the same GitHub Release. npm publish is manual:
 
 ```bash
 git tag v<version> && git push --tags

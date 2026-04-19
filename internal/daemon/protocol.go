@@ -24,4 +24,5 @@ const (
 	MethodStatus       = "status"
 	MethodSourceList   = "source_list"
 	MethodReloadSource = "reload_source"
+	MethodHelp         = "help"
 )

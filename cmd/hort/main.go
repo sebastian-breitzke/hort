@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/s16e/hort/internal/cli"
+	"github.com/s16e/hort/internal/helptext"
 	"github.com/spf13/cobra"
 )
 
@@ -29,7 +30,7 @@ func main() {
 	root := &cobra.Command{
 		Use:   "hort",
 		Short: "Hort — Local secret and config store for humans and AI agents",
-		Long:  cli.HelpText,
+		Long:  helptext.HelpText,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if flagSecret != "" {
 				return cli.CmdGetSecret(flagSecret, flagEnv, flagContext, flagSource)

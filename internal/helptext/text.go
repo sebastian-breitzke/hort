@@ -1,4 +1,6 @@
-package cli
+// Package helptext holds the hort CLI help text, split from internal/cli so
+// the daemon can serve it without creating an import cycle.
+package helptext
 
 const HelpText = `Hort — Local secret and config store for humans and AI agents.
 

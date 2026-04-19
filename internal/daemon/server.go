@@ -10,6 +10,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/s16e/hort/internal/helptext"
 	"github.com/s16e/hort/internal/store"
 	"github.com/s16e/hort/internal/vault"
 )
@@ -203,6 +204,9 @@ func (s *Server) dispatch(req *Request) Response {
 			return errResp(err)
 		}
 		return okResp(map[string]any{"entries": entries})
+
+	case MethodHelp:
+		return okResp(map[string]any{"text": helptext.HelpText})
 
 	default:
 		return errResp(fmt.Errorf("unknown method %q", req.Method))
