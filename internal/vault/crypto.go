@@ -4,7 +4,6 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -13,10 +12,13 @@ import (
 )
 
 const (
-	SaltSize    = 32
-	NonceSize   = 12 // AES-256-GCM standard nonce
-	KeySize     = 32 // AES-256
-	HeaderSize  = SaltSize + 4 + 4 + 1 + NonceSize // salt + time + memory + threads + nonce = 53 bytes
+	SaltSize  = 32
+	NonceSize = 12 // AES-256-GCM standard nonce
+	KeySize   = 32 // AES-256
+
+	// HeaderSize is the legacy v1 header length. Retained as a named constant
+	// for external consumers; equivalent to V1HeaderSize.
+	HeaderSize = V1HeaderSize
 
 	DefaultArgonTime    = 3
 	DefaultArgonMemory  = 64 * 1024 // 64 MB
@@ -53,140 +55,147 @@ func GenerateSalt() ([]byte, error) {
 	return salt, nil
 }
 
-// Encrypt encrypts plaintext with AES-256-GCM and returns the full vault file bytes:
-// [salt:32][time:4][memory:4][threads:1][nonce:12][ciphertext+tag:...]
-func Encrypt(plaintext, passphrase []byte, salt []byte, params ArgonParams) ([]byte, error) {
-	key := DeriveKey(passphrase, salt, params)
-
+// sealGCM encrypts plaintext under key with a fresh nonce and returns both.
+func sealGCM(plaintext, key []byte) ([]byte, []byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, fmt.Errorf("creating cipher: %w", err)
+		return nil, nil, fmt.Errorf("creating cipher: %w", err)
 	}
-
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
-		return nil, fmt.Errorf("creating GCM: %w", err)
+		return nil, nil, fmt.Errorf("creating GCM: %w", err)
 	}
-
 	nonce := make([]byte, NonceSize)
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, fmt.Errorf("generating nonce: %w", err)
+		return nil, nil, fmt.Errorf("generating nonce: %w", err)
 	}
-
-	ciphertext := gcm.Seal(nil, nonce, plaintext, nil)
-
-	// Build header + ciphertext
-	header := make([]byte, HeaderSize)
-	copy(header[0:SaltSize], salt)
-	binary.BigEndian.PutUint32(header[SaltSize:SaltSize+4], params.Time)
-	binary.BigEndian.PutUint32(header[SaltSize+4:SaltSize+8], params.Memory)
-	header[SaltSize+8] = params.Threads
-	copy(header[SaltSize+9:], nonce)
-
-	return append(header, ciphertext...), nil
+	return gcm.Seal(nil, nonce, plaintext, nil), nonce, nil
 }
 
-// Decrypt decrypts a vault file. Returns the plaintext JSON.
-func Decrypt(data, passphrase []byte) ([]byte, error) {
-	if len(data) < HeaderSize {
-		return nil, errors.New("vault file too short")
-	}
-
-	salt := data[0:SaltSize]
-	params := ArgonParams{
-		Time:    binary.BigEndian.Uint32(data[SaltSize : SaltSize+4]),
-		Memory:  binary.BigEndian.Uint32(data[SaltSize+4 : SaltSize+8]),
-		Threads: data[SaltSize+8],
-	}
-	nonce := data[SaltSize+9 : HeaderSize]
-	ciphertext := data[HeaderSize:]
-
-	key := DeriveKey(passphrase, salt, params)
-
+// openGCM decrypts ciphertext using key and nonce.
+func openGCM(ciphertext, nonce, key []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("creating cipher: %w", err)
 	}
-
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
 		return nil, fmt.Errorf("creating GCM: %w", err)
 	}
-
-	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		return nil, errors.New("decryption failed — wrong passphrase or corrupted vault")
-	}
-
-	return plaintext, nil
-}
-
-// DecryptWithKey decrypts a vault file using a pre-derived key (from session).
-func DecryptWithKey(data, key []byte) ([]byte, error) {
-	if len(data) < HeaderSize {
-		return nil, errors.New("vault file too short")
-	}
-
-	nonce := data[SaltSize+9 : HeaderSize]
-	ciphertext := data[HeaderSize:]
-
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, fmt.Errorf("creating cipher: %w", err)
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("creating GCM: %w", err)
-	}
-
 	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
 		return nil, errors.New("decryption failed — wrong key or corrupted vault")
 	}
-
 	return plaintext, nil
 }
 
-// EncryptWithKey encrypts plaintext using a pre-derived key (from session).
-// Reads the existing salt and params from the current vault data to preserve them.
-func EncryptWithKey(plaintext, key, existingVaultData []byte) ([]byte, error) {
-	if len(existingVaultData) < HeaderSize {
-		return nil, errors.New("existing vault data too short to extract header")
+// deriveSessionKey computes the 32-byte session key for the given format.
+// For Argon2id formats it derives from passphrase material using the stored
+// salt and params. For raw-key formats it validates that material is already
+// 32 bytes and returns it directly.
+func deriveSessionKey(fmtInfo FormatInfo, material []byte) ([]byte, error) {
+	switch fmtInfo.KDF {
+	case KDFArgon2id:
+		return DeriveKey(material, fmtInfo.Salt, fmtInfo.Argon), nil
+	case KDFRawKey:
+		if len(material) != KeySize {
+			return nil, fmt.Errorf("raw-key vault requires %d-byte key, got %d", KeySize, len(material))
+		}
+		buf := make([]byte, KeySize)
+		copy(buf, material)
+		return buf, nil
+	default:
+		return nil, fmt.Errorf("unknown KDF mode %d", fmtInfo.KDF)
+	}
+}
+
+// CreateEncrypted encodes plaintext as a v2 vault file using the given KDF mode
+// and key material. Returns the full file bytes plus the derived session key.
+func CreateEncrypted(plaintext, material []byte, kdf KDFMode) ([]byte, []byte, error) {
+	var salt []byte
+	params := DefaultArgonParams()
+
+	switch kdf {
+	case KDFArgon2id:
+		var err error
+		salt, err = GenerateSalt()
+		if err != nil {
+			return nil, nil, err
+		}
+	case KDFRawKey:
+		salt = make([]byte, SaltSize)
+		params = ArgonParams{}
+	default:
+		return nil, nil, fmt.Errorf("unknown KDF mode %d", kdf)
 	}
 
-	// Preserve salt and params from existing vault
-	salt := existingVaultData[0:SaltSize]
-	params := ArgonParams{
-		Time:    binary.BigEndian.Uint32(existingVaultData[SaltSize : SaltSize+4]),
-		Memory:  binary.BigEndian.Uint32(existingVaultData[SaltSize+4 : SaltSize+8]),
-		Threads: existingVaultData[SaltSize+8],
-	}
-
-	block, err := aes.NewCipher(key)
+	sessionKey, err := deriveSessionKey(FormatInfo{KDF: kdf, Salt: salt, Argon: params}, material)
 	if err != nil {
-		return nil, fmt.Errorf("creating cipher: %w", err)
+		return nil, nil, err
 	}
 
-	gcm, err := cipher.NewGCM(block)
+	ciphertext, nonce, err := sealGCM(plaintext, sessionKey)
 	if err != nil {
-		return nil, fmt.Errorf("creating GCM: %w", err)
+		return nil, nil, err
 	}
 
-	// Fresh nonce for every write
-	nonce := make([]byte, NonceSize)
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, fmt.Errorf("generating nonce: %w", err)
+	header := buildV2Header(kdf, salt, params, nonce)
+	return append(header, ciphertext...), sessionKey, nil
+}
+
+// DecryptWithKey decrypts any supported vault format using a pre-derived session key.
+func DecryptWithKey(data, sessionKey []byte) ([]byte, error) {
+	info, err := ParseFormat(data)
+	if err != nil {
+		return nil, err
 	}
+	return openGCM(data[info.CipherAt:], info.Nonce, sessionKey)
+}
 
-	ciphertext := gcm.Seal(nil, nonce, plaintext, nil)
+// UnlockWithMaterial parses the vault header, derives a session key from the
+// provided material per the stored KDF mode, verifies decryption succeeds, and
+// returns the session key.
+func UnlockWithMaterial(data, material []byte) ([]byte, error) {
+	info, err := ParseFormat(data)
+	if err != nil {
+		return nil, err
+	}
+	key, err := deriveSessionKey(info, material)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := openGCM(data[info.CipherAt:], info.Nonce, key); err != nil {
+		return nil, errors.New("decryption failed — wrong passphrase/key or corrupted vault")
+	}
+	return key, nil
+}
 
-	header := make([]byte, HeaderSize)
-	copy(header[0:SaltSize], salt)
-	binary.BigEndian.PutUint32(header[SaltSize:SaltSize+4], params.Time)
-	binary.BigEndian.PutUint32(header[SaltSize+4:SaltSize+8], params.Memory)
-	header[SaltSize+8] = params.Threads
-	copy(header[SaltSize+9:], nonce)
-
+// EncryptPreservingFormat re-encrypts plaintext using the existing file's
+// format (version, KDF, salt, argon params). A fresh nonce is generated for
+// each write. The session key must match the existing vault's key.
+func EncryptPreservingFormat(plaintext, sessionKey, existingRaw []byte) ([]byte, error) {
+	info, err := ParseFormat(existingRaw)
+	if err != nil {
+		return nil, err
+	}
+	ciphertext, nonce, err := sealGCM(plaintext, sessionKey)
+	if err != nil {
+		return nil, err
+	}
+	var header []byte
+	switch info.Version {
+	case 1:
+		header = buildV1Header(info.Salt, info.Argon, nonce)
+	case 2:
+		header = buildV2Header(info.KDF, info.Salt, info.Argon, nonce)
+	default:
+		return nil, fmt.Errorf("unsupported vault version %d", info.Version)
+	}
 	return append(header, ciphertext...), nil
+}
+
+// ProbeKey verifies that the given session key can decrypt the file.
+func ProbeKey(data, sessionKey []byte) error {
+	_, err := DecryptWithKey(data, sessionKey)
+	return err
 }

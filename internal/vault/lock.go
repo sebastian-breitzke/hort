@@ -6,30 +6,22 @@ import (
 	"path/filepath"
 )
 
-// LockPath returns the path to the vault lock file.
+// LockPath returns the path to the primary vault's lock file.
 func LockPath() (string, error) {
-	dir, err := HortDir()
+	ref, err := PrimaryRef()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "vault.lock"), nil
+	return ref.LockPath, nil
 }
 
-func lockVault() (func() error, error) {
-	dir, err := HortDir()
-	if err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return nil, fmt.Errorf("creating hort directory: %w", err)
+// lockVault acquires an exclusive file lock on the given vault ref.
+func lockVault(ref VaultRef) (func() error, error) {
+	if err := os.MkdirAll(filepath.Dir(ref.LockPath), 0700); err != nil {
+		return nil, fmt.Errorf("creating lock directory: %w", err)
 	}
 
-	path, err := LockPath()
-	if err != nil {
-		return nil, err
-	}
-
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	file, err := os.OpenFile(ref.LockPath, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, fmt.Errorf("opening vault lock: %w", err)
 	}

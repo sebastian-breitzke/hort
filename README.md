@@ -18,6 +18,14 @@ None of this is discoverable. An agent can't ask "what secrets are available?" �
 
 ## Install
 
+### npm / npx (cross-platform)
+
+```bash
+npx @s16e/hort --help       # Run without installing
+npm install -g @s16e/hort   # Install globally
+hort init
+```
+
 ### macOS (Homebrew) — recommended
 
 ```bash
@@ -164,6 +172,37 @@ hort --delete tenant-id --env prod               # Delete prod override only
 hort --delete tenant-id --env prod --context heine  # Delete specific env+context
 ```
 
+### Mounted Sources
+
+Hort supports multiple secret sources on top of the primary vault. Use `hort source mount` to register an external encrypted file (e.g. an app's instance-local secret store) as an additional source. Reads merge across every unlocked source with a `[source]` prefix; writes default to the primary vault and require `--source <name>` to target a mount.
+
+```bash
+# Register a mounted source (raw 32-byte key, no KDF)
+hort source mount --name fachwerk-heine \
+  --path ~/.fachwerk-heine/secrets.hort.enc \
+  --key-hex "$MY_APP_MASTER_KEY_HEX"
+
+hort source list                         # primary + all registered mounts
+hort --list                              # merged entries with [mount] prefixes
+hort --set-secret foo --value bar --source fachwerk-heine
+hort --secret foo --source fachwerk-heine
+hort source unmount --name fachwerk-heine
+```
+
+The vault file itself stays on disk between unmounts — unmount only clears the cached key and removes the registry entry. Mount names must be lowercase `a-z0-9._-`. `primary` is reserved.
+
+### Daemon (optional)
+
+Frequent callers (e.g. an app resolving dozens of secrets per request) can start a background daemon to avoid spawning a fresh CLI process per call:
+
+```bash
+hort daemon start        # foreground — wrap with launchd/systemd/nohup for background
+hort daemon status       # is the socket responsive?
+hort daemon stop         # SIGTERM the running daemon
+```
+
+When the daemon is running, every `hort --secret`/`--set-secret`/`--list` invocation detects the socket at `~/.hort/daemon.sock` and routes the request through it instead of reading the vault file directly. If the daemon is not running, the CLI transparently falls back to file access — no configuration needed.
+
 ## Agent Integration
 
 Hort is agent-first, not agent-compatible. The `--help` output includes an `AGENT INSTRUCTIONS` section — when an agent runs `hort --help`, it learns the full interface in one call.
@@ -201,13 +240,22 @@ hort unlock  # no terminal prompt
 cmd/hort/main.go            CLI entry point (Cobra)
 internal/
 ├── vault/
-│   ├── crypto.go            AES-256-GCM encrypt/decrypt, Argon2id key derivation
-│   ├── vault.go             Vault file operations, data model
-│   └── session.go           Session key persistence
+│   ├── crypto.go            AES-256-GCM encrypt/decrypt, Argon2id KDF, v1/v2 format parsing
+│   ├── format.go            v2 header layout + KDF flag
+│   ├── vault.go             VaultRef, load/save/update by ref, primary helpers
+│   ├── sources.go           Mounted-source registry (~/.hort/sources/index.json)
+│   ├── session.go           Per-ref session key persistence
+│   └── lock.go              Per-ref flock for concurrent writers
 ├── store/
-│   └── store.go             High-level get/set/list/delete with fallback resolution
+│   └── store.go             Multi-source merge reads, targeted writes, ambiguity detection
+├── daemon/
+│   ├── server.go            Unix-socket JSON-RPC-lite server
+│   ├── client.go            Short-lived client with auto-detect
+│   ├── protocol.go          Method names and request/response shape
+│   └── paths.go             Socket / PID / log paths
 └── cli/
-    ├── commands.go          Command implementations
+    ├── commands.go          Command implementations (with transparent daemon routing)
+    ├── daemon.go            `hort daemon start/stop/status`
     ├── help.go              Help text (doubles as agent prompt)
     └── output.go            Output formatting (plain text + JSON)
 ```
@@ -217,11 +265,19 @@ internal/
 Everything lives in a single file: `~/.hort/vault.enc`.
 Writes are serialized with a local file lock, and every successful update keeps the previous encrypted state in `~/.hort/vault.enc.bak`.
 
-**File format** (binary):
+**File format** (binary). Two variants are supported:
 
+v1 (legacy — only the primary vault created before multi-source support uses this):
 ```
 [salt:32 bytes][argon2id-time:4][argon2id-memory:4][argon2id-threads:1][nonce:12][ciphertext+tag:...]
 ```
+
+v2 (all new vaults incl. mounted sources):
+```
+[magic:"HRT\x02"][version:1 byte][kdf:1 byte][salt:32][argon-time:4][argon-memory:4][argon-threads:1][nonce:12][ciphertext+tag:...]
+```
+
+`kdf = 0` → Argon2id-derived key (salt + params are meaningful). `kdf = 1` → raw 32-byte key supplied by the mounter (salt/params fields are present but unused). Mounted sources typically use `kdf = 1` so the mounting app's own master key is used directly, no Argon2id pass.
 
 - **Key derivation:** Argon2id (memory-hard, GPU-resistant) with 64 MB memory cost, 3 iterations, 4 threads
 - **Encryption:** AES-256-GCM with authenticated encryption (tamper-proof)

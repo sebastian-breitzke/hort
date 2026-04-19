@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/s16e/hort/internal/store"
+	"github.com/s16e/hort/internal/vault"
 )
 
 // FormatList formats entry list for human or JSON output.
@@ -27,7 +28,12 @@ func FormatList(entries []store.EntryInfo, jsonOutput bool) string {
 			desc = "(no description)"
 		}
 
-		line := fmt.Sprintf("%-8s %-30s %s  [env: %s]", e.Type, e.Name, desc, envs)
+		prefix := ""
+		if e.Source != "" && e.Source != vault.PrimarySourceName {
+			prefix = fmt.Sprintf("[%s] ", e.Source)
+		}
+
+		line := fmt.Sprintf("%s%-8s %-30s %s  [env: %s]", prefix, e.Type, e.Name, desc, envs)
 		if len(e.Contexts) > 0 {
 			line += fmt.Sprintf("  [ctx: %s]", strings.Join(e.Contexts, ", "))
 		}
@@ -37,19 +43,56 @@ func FormatList(entries []store.EntryInfo, jsonOutput bool) string {
 }
 
 // FormatDescribe formats entry details for human or JSON output.
-func FormatDescribe(entry *store.EntryInfo, jsonOutput bool) string {
+// Accepts multiple matches (one per source) so ambiguity is explicit.
+func FormatDescribe(entries []store.EntryInfo, jsonOutput bool) string {
 	if jsonOutput {
-		data, _ := json.MarshalIndent(entry, "", "  ")
+		data, _ := json.MarshalIndent(entries, "", "  ")
 		return string(data)
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "Name:         %s\n", entry.Name)
-	fmt.Fprintf(&b, "Type:         %s\n", entry.Type)
-	fmt.Fprintf(&b, "Description:  %s\n", entry.Description)
-	fmt.Fprintf(&b, "Environments: %s\n", strings.Join(entry.Environments, ", "))
-	if len(entry.Contexts) > 0 {
-		fmt.Fprintf(&b, "Contexts:     %s\n", strings.Join(entry.Contexts, ", "))
+	for i, entry := range entries {
+		if i > 0 {
+			b.WriteString("---\n")
+		}
+		fmt.Fprintf(&b, "Name:         %s\n", entry.Name)
+		fmt.Fprintf(&b, "Source:       %s\n", entry.Source)
+		fmt.Fprintf(&b, "Type:         %s\n", entry.Type)
+		fmt.Fprintf(&b, "Description:  %s\n", entry.Description)
+		fmt.Fprintf(&b, "Environments: %s\n", strings.Join(entry.Environments, ", "))
+		if len(entry.Contexts) > 0 {
+			fmt.Fprintf(&b, "Contexts:     %s\n", strings.Join(entry.Contexts, ", "))
+		}
+	}
+	return b.String()
+}
+
+// SourceStatus captures one line in `hort source list` output.
+type SourceStatus struct {
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	KDF      string `json:"kdf"`
+	Unlocked bool   `json:"unlocked"`
+	Primary  bool   `json:"primary"`
+}
+
+// FormatSourceList renders the source list.
+func FormatSourceList(items []SourceStatus, jsonOutput bool) string {
+	if jsonOutput {
+		data, _ := json.MarshalIndent(items, "", "  ")
+		return string(data)
+	}
+	var b strings.Builder
+	for _, s := range items {
+		state := "locked"
+		if s.Unlocked {
+			state = "unlocked"
+		}
+		primaryMark := ""
+		if s.Primary {
+			primaryMark = " (primary)"
+		}
+		fmt.Fprintf(&b, "%-24s %-8s %-8s %s%s\n", s.Name, state, s.KDF, s.Path, primaryMark)
 	}
 	return b.String()
 }

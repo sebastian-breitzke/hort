@@ -7,77 +7,86 @@ import (
 	"path/filepath"
 )
 
-// SessionPath returns the path to the session key file.
+// SessionPath returns the path to the primary vault's session file.
 func SessionPath() (string, error) {
-	dir, err := HortDir()
+	ref, err := PrimaryRef()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, ".session"), nil
+	return ref.SessionPath, nil
 }
 
-// SaveSession stores the derived key in the session file.
-func SaveSession(key []byte) error {
-	path, err := SessionPath()
-	if err != nil {
-		return err
+// SaveSessionFor stores the derived key in the session file for the given ref.
+func SaveSessionFor(ref VaultRef, key []byte) error {
+	if err := os.MkdirAll(filepath.Dir(ref.SessionPath), 0700); err != nil {
+		return fmt.Errorf("creating session directory: %w", err)
 	}
-
-	dir, err := HortDir()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("creating hort directory: %w", err)
-	}
-
 	encoded := hex.EncodeToString(key)
-	return os.WriteFile(path, []byte(encoded), 0600)
+	return os.WriteFile(ref.SessionPath, []byte(encoded), 0600)
 }
 
-// LoadSession reads the session key. Returns an error if the vault is locked.
-func LoadSession() ([]byte, error) {
-	path, err := SessionPath()
-	if err != nil {
-		return nil, err
-	}
-
-	data, err := os.ReadFile(path)
+// LoadSessionFor reads the session key for the given ref. Returns an error if
+// the vault is locked (session file absent).
+func LoadSessionFor(ref VaultRef) ([]byte, error) {
+	data, err := os.ReadFile(ref.SessionPath)
 	if os.IsNotExist(err) {
-		return nil, fmt.Errorf("vault is locked — run `hort unlock` first")
+		return nil, fmt.Errorf("vault %s is locked — run `hort unlock` first", ref.Name)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("reading session: %w", err)
 	}
-
 	key, err := hex.DecodeString(string(data))
 	if err != nil {
 		return nil, fmt.Errorf("invalid session file: %w", err)
 	}
-
 	return key, nil
 }
 
-// ClearSession removes the session key file.
-func ClearSession() error {
-	path, err := SessionPath()
-	if err != nil {
-		return err
-	}
-
-	err = os.Remove(path)
+// ClearSessionFor removes the session key file for the given ref.
+func ClearSessionFor(ref VaultRef) error {
+	err := os.Remove(ref.SessionPath)
 	if os.IsNotExist(err) {
-		return nil // already locked
+		return nil
 	}
 	return err
 }
 
-// IsUnlocked checks if a session exists.
+// IsUnlockedFor reports whether a session file exists for the given ref.
+func IsUnlockedFor(ref VaultRef) bool {
+	_, err := os.Stat(ref.SessionPath)
+	return err == nil
+}
+
+// Legacy primary-only helpers.
+
+func SaveSession(key []byte) error {
+	ref, err := PrimaryRef()
+	if err != nil {
+		return err
+	}
+	return SaveSessionFor(ref, key)
+}
+
+func LoadSession() ([]byte, error) {
+	ref, err := PrimaryRef()
+	if err != nil {
+		return nil, err
+	}
+	return LoadSessionFor(ref)
+}
+
+func ClearSession() error {
+	ref, err := PrimaryRef()
+	if err != nil {
+		return err
+	}
+	return ClearSessionFor(ref)
+}
+
 func IsUnlocked() bool {
-	path, err := SessionPath()
+	ref, err := PrimaryRef()
 	if err != nil {
 		return false
 	}
-	_, err = os.Stat(path)
-	return err == nil
+	return IsUnlockedFor(ref)
 }

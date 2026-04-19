@@ -54,6 +54,17 @@ func NewVaultData() *VaultData {
 	}
 }
 
+// PrimarySourceName is the reserved name for the primary vault.
+const PrimarySourceName = "primary"
+
+// VaultRef identifies a vault file and its co-located lock/session artifacts.
+type VaultRef struct {
+	Name        string
+	Path        string
+	LockPath    string
+	SessionPath string
+}
+
 // HortDir returns the hort config directory path.
 func HortDir() (string, error) {
 	home, err := os.UserHomeDir()
@@ -63,129 +74,155 @@ func HortDir() (string, error) {
 	return filepath.Join(home, ".hort"), nil
 }
 
-// VaultPath returns the path to the vault file.
-func VaultPath() (string, error) {
+// SourcesDir returns the directory that holds mounted source vaults.
+func SourcesDir() (string, error) {
 	dir, err := HortDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "vault.enc"), nil
+	return filepath.Join(dir, "sources"), nil
 }
 
-// VaultExists checks if a vault file exists.
+// PrimaryRef returns the VaultRef for the primary vault (~/.hort/vault.enc).
+func PrimaryRef() (VaultRef, error) {
+	dir, err := HortDir()
+	if err != nil {
+		return VaultRef{}, err
+	}
+	return VaultRef{
+		Name:        PrimarySourceName,
+		Path:        filepath.Join(dir, "vault.enc"),
+		LockPath:    filepath.Join(dir, "vault.lock"),
+		SessionPath: filepath.Join(dir, ".session"),
+	}, nil
+}
+
+// MountedRefAt returns the VaultRef for a mount with the given name, using the
+// supplied vault file path. Lock and session files sit next to a per-name slot
+// inside the hort sources directory.
+func MountedRefAt(name, vaultPath string) (VaultRef, error) {
+	if name == "" {
+		return VaultRef{}, fmt.Errorf("mount name must not be empty")
+	}
+	if name == PrimarySourceName {
+		return VaultRef{}, fmt.Errorf("mount name %q is reserved", PrimarySourceName)
+	}
+	sourcesDir, err := SourcesDir()
+	if err != nil {
+		return VaultRef{}, err
+	}
+	return VaultRef{
+		Name:        name,
+		Path:        vaultPath,
+		LockPath:    filepath.Join(sourcesDir, name+".lock"),
+		SessionPath: filepath.Join(sourcesDir, name+".session"),
+	}, nil
+}
+
+// VaultPath returns the path to the primary vault file. Kept as a package-level
+// convenience for CLI/status code that only cares about the primary vault.
+func VaultPath() (string, error) {
+	ref, err := PrimaryRef()
+	if err != nil {
+		return "", err
+	}
+	return ref.Path, nil
+}
+
+// VaultExists reports whether the primary vault file exists.
 func VaultExists() (bool, error) {
-	path, err := VaultPath()
+	ref, err := PrimaryRef()
 	if err != nil {
 		return false, err
 	}
-	_, err = os.Stat(path)
+	return RefExists(ref)
+}
+
+// RefExists reports whether the vault file for the given ref exists.
+func RefExists(ref VaultRef) (bool, error) {
+	_, err := os.Stat(ref.Path)
 	if os.IsNotExist(err) {
 		return false, nil
 	}
 	return err == nil, err
 }
 
-// CreateVault creates a new encrypted vault with the given passphrase.
-// Returns the derived key for session caching.
-func CreateVault(passphrase []byte) ([]byte, error) {
-	dir, err := HortDir()
-	if err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return nil, fmt.Errorf("creating hort directory: %w", err)
+// CreateVault creates a new v2 vault file at ref using the given KDF mode and
+// material. Returns the derived session key for immediate caching.
+func CreateVault(ref VaultRef, material []byte, kdf KDFMode) ([]byte, error) {
+	if err := os.MkdirAll(filepath.Dir(ref.Path), 0700); err != nil {
+		return nil, fmt.Errorf("creating vault directory: %w", err)
 	}
 
-	salt, err := GenerateSalt()
-	if err != nil {
-		return nil, err
-	}
-
-	params := DefaultArgonParams()
-	key := DeriveKey(passphrase, salt, params)
-
-	data := NewVaultData()
-	plaintext, err := json.Marshal(data)
+	plaintext, err := json.Marshal(NewVaultData())
 	if err != nil {
 		return nil, fmt.Errorf("marshaling vault: %w", err)
 	}
 
-	encrypted, err := Encrypt(plaintext, passphrase, salt, params)
+	fileBytes, sessionKey, err := CreateEncrypted(plaintext, material, kdf)
 	if err != nil {
 		return nil, err
 	}
 
-	path, err := VaultPath()
-	if err != nil {
-		return nil, err
-	}
-
-	if err := writeFileAtomic(path, encrypted, 0600); err != nil {
+	if err := writeFileAtomic(ref.Path, fileBytes, 0600); err != nil {
 		return nil, fmt.Errorf("writing vault: %w", err)
 	}
-
-	return key, nil
+	return sessionKey, nil
 }
 
-// LoadVault reads and decrypts the vault using a session key.
+// CreatePrimaryVault creates the primary vault with a passphrase (v1-style
+// Argon2id KDF, but written in v2 format for consistency).
+func CreatePrimaryVault(passphrase []byte) ([]byte, error) {
+	ref, err := PrimaryRef()
+	if err != nil {
+		return nil, err
+	}
+	return CreateVault(ref, passphrase, KDFArgon2id)
+}
+
+// LoadVault reads and decrypts the given vault using a session key.
 // Returns the vault data and the raw encrypted bytes (needed for re-encryption).
-func LoadVault(key []byte) (*VaultData, []byte, error) {
-	path, err := VaultPath()
+func LoadVault(ref VaultRef, sessionKey []byte) (*VaultData, []byte, error) {
+	raw, err := os.ReadFile(ref.Path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("reading vault %s: %w", ref.Name, err)
+	}
+	plaintext, err := DecryptWithKey(raw, sessionKey)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, nil, fmt.Errorf("reading vault: %w", err)
-	}
-
-	plaintext, err := DecryptWithKey(raw, key)
-	if err != nil {
-		return nil, nil, err
-	}
-
 	var data VaultData
 	if err := json.Unmarshal(plaintext, &data); err != nil {
-		return nil, nil, fmt.Errorf("parsing vault: %w", err)
+		return nil, nil, fmt.Errorf("parsing vault %s: %w", ref.Name, err)
 	}
-
 	if data.Secrets == nil {
 		data.Secrets = make(map[string]Entry)
 	}
 	if data.Configs == nil {
 		data.Configs = make(map[string]Entry)
 	}
-
 	return &data, raw, nil
 }
 
-// SaveVault encrypts and writes the vault data.
-func SaveVault(data *VaultData, key []byte, existingRaw []byte) error {
+// SaveVault encrypts and writes the vault data back, preserving the file format.
+func SaveVault(ref VaultRef, data *VaultData, sessionKey []byte, existingRaw []byte) error {
 	plaintext, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("marshaling vault: %w", err)
 	}
-
-	encrypted, err := EncryptWithKey(plaintext, key, existingRaw)
+	encrypted, err := EncryptPreservingFormat(plaintext, sessionKey, existingRaw)
 	if err != nil {
 		return err
 	}
-
-	path, err := VaultPath()
-	if err != nil {
+	if err := backupFile(ref.Path, 0600); err != nil {
 		return err
 	}
-
-	if err := backupFile(path, 0600); err != nil {
-		return err
-	}
-	return writeFileAtomic(path, encrypted, 0600)
+	return writeFileAtomic(ref.Path, encrypted, 0600)
 }
 
 // UpdateVault serializes the full read-modify-write cycle for vault mutations.
-func UpdateVault(key []byte, mutate func(data *VaultData) error) error {
-	unlock, err := lockVault()
+func UpdateVault(ref VaultRef, sessionKey []byte, mutate func(data *VaultData) error) error {
+	unlock, err := lockVault(ref)
 	if err != nil {
 		return err
 	}
@@ -193,45 +230,22 @@ func UpdateVault(key []byte, mutate func(data *VaultData) error) error {
 		_ = unlock()
 	}()
 
-	data, raw, err := LoadVault(key)
+	data, raw, err := LoadVault(ref, sessionKey)
 	if err != nil {
 		return err
 	}
 	if err := mutate(data); err != nil {
 		return err
 	}
-	return SaveVault(data, key, raw)
+	return SaveVault(ref, data, sessionKey, raw)
 }
 
-// UnlockVault decrypts the vault with a passphrase and returns the derived key.
-func UnlockVault(passphrase []byte) ([]byte, error) {
-	path, err := VaultPath()
+// UnlockVault decrypts the vault at ref with the given material (passphrase or
+// raw 32-byte key depending on its KDF mode) and returns the derived session key.
+func UnlockVault(ref VaultRef, material []byte) ([]byte, error) {
+	raw, err := os.ReadFile(ref.Path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reading vault %s: %w", ref.Name, err)
 	}
-
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("reading vault: %w", err)
-	}
-
-	// Try decrypting to verify passphrase
-	_, err = Decrypt(raw, passphrase)
-	if err != nil {
-		return nil, err
-	}
-
-	// Derive the key for session storage
-	if len(raw) < HeaderSize {
-		return nil, fmt.Errorf("vault file too short")
-	}
-	salt := raw[0:SaltSize]
-	params := ArgonParams{
-		Time:    uint32(raw[SaltSize])<<24 | uint32(raw[SaltSize+1])<<16 | uint32(raw[SaltSize+2])<<8 | uint32(raw[SaltSize+3]),
-		Memory:  uint32(raw[SaltSize+4])<<24 | uint32(raw[SaltSize+5])<<16 | uint32(raw[SaltSize+6])<<8 | uint32(raw[SaltSize+7]),
-		Threads: raw[SaltSize+8],
-	}
-
-	key := DeriveKey(passphrase, salt, params)
-	return key, nil
+	return UnlockWithMaterial(raw, material)
 }

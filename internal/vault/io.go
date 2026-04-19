@@ -6,13 +6,18 @@ import (
 	"path/filepath"
 )
 
-// BackupPath returns the path to the last vault backup.
+// BackupPath returns the path to the primary vault's backup file.
 func BackupPath() (string, error) {
-	path, err := VaultPath()
+	ref, err := PrimaryRef()
 	if err != nil {
 		return "", err
 	}
-	return path + ".bak", nil
+	return ref.Path + ".bak", nil
+}
+
+// BackupPathFor returns the backup path for the given vault ref.
+func BackupPathFor(ref VaultRef) string {
+	return ref.Path + ".bak"
 }
 
 func backupFile(path string, perm os.FileMode) error {

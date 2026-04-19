@@ -1,0 +1,30 @@
+{
+  "name": "@s16e/hort",
+  "version": "0.1.5",
+  "description": "Local secret and config store for humans and AI agents",
+  "keywords": ["secrets", "vault", "config", "cli", "ai-agents"],
+  "license": "MIT",
+  "author": "Sebastian Breitzke",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sebastian-breitzke/hort.git"
+  },
+  "homepage": "https://github.com/sebastian-breitzke/hort",
+  "bin": {
+    "hort": "run.js"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "files": [
+    "install.js",
+    "run.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "os": ["darwin", "linux", "win32"],
+  "cpu": ["x64", "arm64"],
+  "engines": {
+    "node": ">=16"
+  }
+}

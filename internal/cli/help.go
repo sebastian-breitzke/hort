@@ -5,99 +5,111 @@ const HelpText = `Hort — Local secret and config store for humans and AI agent
 USAGE:
   hort <command> [flags]
 
-READ:
-  hort --secret <name> [--env <env>] [--context <ctx>]   Get a secret value (stdout only)
-  hort --config <name> [--env <env>] [--context <ctx>]   Get a config value (stdout only)
+READ (merged across all unlocked sources):
+  hort --secret <name> [--env <env>] [--context <ctx>] [--source <name>]   Get a secret (stdout only)
+  hort --config <name> [--env <env>] [--context <ctx>] [--source <name>]   Get a config (stdout only)
 
-WRITE:
-  hort --set-secret <name> --value <v> [--env <env>] [--context <ctx>] [--description <d>]
-  hort --set-config <name> --value <v> [--env <env>] [--context <ctx>] [--description <d>]
+WRITE (targets --source, defaults to primary):
+  hort --set-secret <name> --value <v> [--env <env>] [--context <ctx>] [--description <d>] [--source <name>]
+  hort --set-config <name> --value <v> [--env <env>] [--context <ctx>] [--description <d>] [--source <name>]
 
 DISCOVER:
-  hort --list [--type secret|config]     List all entries with descriptions, environments, and contexts
-  hort --describe <name>                 Show entry details: environments, contexts, description
-  hort status                            Show vault status (locked/unlocked, entry count)
+  hort --list [--type secret|config]     List entries across all unlocked sources (prefixed with [source])
+  hort --describe <name>                 Show entry details (one block per source with a match)
+  hort status                            Show primary vault status (locked/unlocked, entry count)
 
 MANAGE:
-  hort init [--restore]                  Create new vault or restore with existing passphrase
-  hort unlock                            Unlock vault with passphrase
-  hort lock                              Lock vault (clear session key)
+  hort init [--restore]                  Create new primary vault or restore with existing passphrase
+  hort unlock                            Unlock primary vault with passphrase
+  hort lock                              Lock primary vault (clears session key)
+
+SOURCES:
+  hort source list [--json]              List primary + mounted sources with lock status
+  hort source mount --name <n> --path <p> --key-hex <hex> [--kdf raw|argon2id]
+                                         Register a mounted source vault and cache its key
+  hort source unmount --name <n>         Unmount a source (vault file stays on disk)
+
+DAEMON:
+  hort daemon start                      Run the background daemon in the foreground
+  hort daemon stop                       Send SIGTERM to a running daemon
+  hort daemon status [--json]            Check whether the daemon socket is responsive
 
 DELETE:
-  hort --delete <name> [--env <env>] [--context <ctx>]   Delete entry or specific override
+  hort --delete <name> [--env <env>] [--context <ctx>] [--source <name>]   Delete entry or override
 
 FLAGS:
   --env <name>          Target environment (default: * baseline)
   --context <name>      Target context, e.g. tenant or customer (default: * baseline)
+  --source <name>       Target a specific source. Required for writes into mounted sources,
+                        and for disambiguating reads when a name exists in multiple sources.
   --value <value>       Value to store
   --description <text>  Human-readable description for discovery
   --type <secret|config> Filter --list by entry type
   --json                Machine-readable JSON output for --list, --describe, status
   --help                Show this help text
 
+SOURCES EXPLAINED:
+  Hort holds exactly one 'primary' vault (~/.hort/vault.enc) plus any number of
+  mounted sources registered via 'hort source mount'. Reads merge across every
+  unlocked source. Writes default to the primary vault; pass --source <name> to
+  target a specific mount.
+
+  Mounted sources are the glue for external apps like Fachwerk: the app carries
+  its own 32-byte master key, creates a vault file in its instance work-dir,
+  and mounts it at startup. On shutdown it calls 'hort source unmount'.
+
 ENVIRONMENTS AND CONTEXTS:
-  Hort supports two dimensions for value lookup:
-  - Environment (--env): dev, int, prod, etc.
-  - Context (--context): tenant, customer, project — any second dimension you need.
-
-  Values are stored with a combined key of env:context.
-  Without --env or --context, the baseline (*) is used for that dimension.
-
-  Fallback chain when reading:
+  Each entry is keyed by env:context. The baseline is *:*. Reads fall back:
     env+context → env+* → *+*
 
-  Example:
+  Example (primary vault):
     hort --set-secret tenant-id --value "default-123"
-    hort --set-secret tenant-id --value "prod-123" --env prod
-    hort --set-secret tenant-id --value "heine-prod-456" --env prod --context heine
-    hort --set-secret tenant-id --value "otto-prod-789" --env prod --context otto
+    hort --set-secret tenant-id --value "heine-prod" --env prod --context heine
+    hort --secret tenant-id --env prod --context heine   → heine-prod
+    hort --secret tenant-id --env staging                → default-123 (fallback)
 
-    hort --secret tenant-id --env prod --context heine   → heine-prod-456
-    hort --secret tenant-id --env prod --context otto    → otto-prod-789
-    hort --secret tenant-id --env prod                   → prod-123 (no context = *)
-    hort --secret tenant-id --env staging                → default-123 (fallback to *+*)
+DAEMON MODE:
+  When 'hort daemon start' is running, the CLI detects the socket and routes
+  all reads/writes through the daemon instead of reopening vault files. This
+  gives lower latency for frequent callers (e.g. Fachwerk resolving brick
+  secrets). If the daemon is stopped, the CLI transparently falls back to
+  direct file access — no user-visible change.
 
 AGENT INSTRUCTIONS:
   Hort is designed to be used by AI agents (Claude, Codex, Gemini) as a local
-  secret and config store. Here is how to use it:
+  secret and config store.
 
-  1. Discovery: Run ` + "`hort --list`" + ` to see all available secrets and configs.
-     Use ` + "`hort --describe <name>`" + ` to see environments and contexts for an entry.
+  1. Discovery: Run 'hort --list' to see all available entries with source prefixes.
+     Use 'hort --describe <name>' to see environments, contexts, and the source.
 
-  2. Reading: Use ` + "`hort --secret <name>`" + ` or ` + "`hort --config <name>`" + ` to get values.
-     Output goes to stdout with no decoration — safe for piping and $() subshells.
-     Add ` + "`--env <name>`" + ` for environment-specific values.
-     Add ` + "`--context <name>`" + ` for context-specific values (e.g. tenant, customer).
-     Without --env/--context, baseline (*) values are returned.
+  2. Reading: 'hort --secret <name>' returns just the value on stdout — safe for
+     piping and $(...) subshells. If a name exists in multiple sources you will
+     get an ambiguity error; add '--source <name>' to pick one.
 
-  3. Writing: Use --set-secret or --set-config with --value to store entries.
-     Always include --description for discoverability.
+  3. Writing: '--set-secret' / '--set-config' write to the primary vault by
+     default. Pass '--source <name>' to write into a mounted source.
 
-  4. Contexts: If ` + "`hort --describe <name>`" + ` shows contexts (e.g. heine, otto),
-     you may need to ask the user which context to use, or pick the right one
-     based on the current task.
-
-  5. Error handling:
+  4. Error handling:
      - Exit code 0: success, value on stdout
-     - Exit code 1: general error (not found, invalid args), message on stderr
-     - Exit code 2: vault is locked — ask user to run ` + "`hort unlock`" + `
+     - Exit code 1: general error, message on stderr
+     - Exit code 2: primary vault is locked — ask user to run 'hort unlock'
 
-  6. Do NOT parse the vault file directly. Always use the CLI.
-  7. Do NOT store hort output in files or logs — secrets are ephemeral.
-  8. Use --json flag with --list and --describe for structured output.
+  5. Do NOT parse vault files directly. Always use the CLI.
+  6. Do NOT store hort output in files or logs.
+  7. Use --json with --list and --describe for structured output.
 
 EXAMPLES:
-  # Get a secret for use in a command
+  # Read a secret via fallback chain
   TOKEN=$(hort --secret grafana-token --env prod)
-  curl -H "Authorization: Bearer $TOKEN" https://monitoring.example.com
 
-  # Store a context-specific secret
-  hort --set-secret tenant-id --value "abc-123" --env prod --context heine --description "SimpleChain tenant ID"
+  # Mount a Fachwerk instance vault
+  hort source mount --name fachwerk-heine-int \
+     --path ~/.fachwerk-heine-int/secrets.hort.enc \
+     --key-hex "$FACHWERK_SECRETS_MASTER_KEY_HEX"
 
-  # Discover what's available
-  hort --list --type secret
-  hort --describe tenant-id
+  # Read merged across primary + all mounts
+  hort --list
 
-  # Use in CI/scripts
-  API_URL=$(hort --config api-base-url --env staging)
+  # Write into a specific mount
+  hort --set-secret telegram-token --value "xxx" --source fachwerk-heine-int
 `
