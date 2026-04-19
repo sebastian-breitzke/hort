@@ -1,6 +1,6 @@
 {
   "name": "@s16e/hort",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "description": "Local secret and config store for humans and AI agents",
   "keywords": ["secrets", "vault", "config", "cli", "ai-agents"],
   "license": "MIT",

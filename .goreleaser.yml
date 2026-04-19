@@ -1,5 +1,9 @@
 version: 2
 
+before:
+  hooks:
+    - go mod tidy
+
 builds:
   - main: ./cmd/hort
     binary: hort
@@ -22,6 +26,29 @@ archives:
       - goos: windows
         formats:
           - zip
+    files:
+      - README.md
+      - LICENSE*
+
+nfpms:
+  - id: hort
+    package_name: hort
+    vendor: s16e
+    homepage: https://github.com/sebastian-breitzke/hort
+    maintainer: Sebastian Breitzke <sebastian@s16e.de>
+    description: Local secret and config store for humans and AI agents
+    license: MIT
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/bin
+    contents:
+      - src: README.md
+        dst: /usr/share/doc/hort/README.md
+      - src: LICENSE*
+        dst: /usr/share/doc/hort/
+        file_info:
+          mode: 0644
 
 checksum:
   name_template: "checksums.txt"
@@ -34,10 +61,32 @@ brews:
     directory: Formula
     homepage: "https://github.com/sebastian-breitzke/hort"
     description: "Local secret and config store for humans and AI agents"
+    license: MIT
+    install: |
+      bin.install "hort"
+    test: |
+      assert_match "hort", shell_output("#{bin}/hort --help")
+
+release:
+  draft: false
+  prerelease: auto
+  mode: replace
 
 changelog:
   sort: asc
+  use: github
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Others
+      order: 999
   filters:
     exclude:
       - "^docs:"
       - "^test:"
+      - "^chore:"
+      - "^ci:"
