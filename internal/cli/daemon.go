@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"syscall"
 
 	"github.com/s16e/hort/internal/daemon"
 )
@@ -41,7 +40,7 @@ func CmdDaemonStart() error {
 	fmt.Fprintf(os.Stderr, "Hort daemon listening on %s (pid %d)\n", sockPath, os.Getpid())
 
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigCh, shutdownSignals()...)
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -74,10 +73,10 @@ func CmdDaemonStop() error {
 	if err != nil {
 		return fmt.Errorf("invalid pid file: %w", err)
 	}
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+	if err := signalDaemonStop(pid); err != nil {
 		return fmt.Errorf("signaling daemon: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "Sent SIGTERM to daemon pid %d.\n", pid)
+	fmt.Fprintf(os.Stderr, "Sent stop signal to daemon pid %d.\n", pid)
 	return nil
 }
 
