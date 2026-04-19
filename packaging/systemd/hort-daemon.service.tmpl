@@ -1,0 +1,16 @@
+[Unit]
+Description=Hort secret and config store daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart={{.BinaryPath}} daemon start
+Restart=on-failure
+RestartSec=5
+Environment=PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin
+{{- if .Home}}
+Environment=HOME={{.Home}}
+{{- end}}
+
+[Install]
+WantedBy={{.WantedBy}}

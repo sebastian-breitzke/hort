@@ -132,7 +132,8 @@ func CmdLock() error {
 	return nil
 }
 
-// CmdStatus shows vault status for the primary + all mounted sources.
+// CmdStatus shows vault + daemon status in a single call. Apps that depend
+// on Hort can use `hort status --json` as their single readiness check.
 func CmdStatus(jsonOutput bool) error {
 	primaryUnlocked := vault.IsUnlocked()
 	path, _ := vault.VaultPath()
@@ -159,7 +160,11 @@ func CmdStatus(jsonOutput bool) error {
 		}
 	}
 
-	fmt.Print(FormatStatus(primaryUnlocked, path, secretCount, configCount, jsonOutput))
+	daemonRunning := daemon.Available()
+	sockPath, _ := daemon.SocketPath()
+
+	fmt.Print(FormatStatus(primaryUnlocked, path, secretCount, configCount,
+		daemonRunning, sockPath, jsonOutput))
 	return nil
 }
 

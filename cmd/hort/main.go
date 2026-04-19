@@ -212,6 +212,32 @@ func main() {
 	}
 	daemonStatusCmd.Flags().Bool("json", false, "JSON output")
 	daemonCmd.AddCommand(daemonStatusCmd)
+
+	daemonInstallCmd := &cobra.Command{
+		Use:   "install",
+		Short: "Install a launchd agent (macOS) or systemd user unit (Linux)",
+		Long: "Install a launchd agent (macOS) or systemd user unit (Linux) that " +
+			"launches `hort daemon start` at login and keeps it alive. " +
+			"Idempotent — safe to re-run after upgrades.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			system, _ := cmd.Flags().GetBool("system")
+			return cli.CmdDaemonInstall(system)
+		},
+	}
+	daemonInstallCmd.Flags().Bool("system", false, "Install system-wide (requires root; default is user-level)")
+	daemonCmd.AddCommand(daemonInstallCmd)
+
+	daemonUninstallCmd := &cobra.Command{
+		Use:   "uninstall",
+		Short: "Remove the launchd agent or systemd unit",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			system, _ := cmd.Flags().GetBool("system")
+			return cli.CmdDaemonUninstall(system)
+		},
+	}
+	daemonUninstallCmd.Flags().Bool("system", false, "Operate on the system-wide install")
+	daemonCmd.AddCommand(daemonUninstallCmd)
+
 	root.AddCommand(daemonCmd)
 
 	if err := root.Execute(); err != nil {

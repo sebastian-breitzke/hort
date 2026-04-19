@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/s16e/hort/internal/daemon"
+	"github.com/s16e/hort/internal/vault"
 )
 
 // CmdDaemonStart runs the daemon in the foreground. Users who want background
@@ -80,18 +81,23 @@ func CmdDaemonStop() error {
 	return nil
 }
 
-// CmdDaemonStatus reports whether the daemon socket is responsive.
+// CmdDaemonStatus reports whether the daemon socket is responsive and whether
+// the primary vault is unlocked — both conditions must be true for apps to
+// actually resolve secrets through hort.
 func CmdDaemonStatus(jsonOutput bool) error {
 	sockPath, err := daemon.SocketPath()
 	if err != nil {
 		return err
 	}
 	running := daemon.Available()
+	unlocked := vault.IsUnlocked()
 
 	if jsonOutput {
 		payload := map[string]any{
-			"running":     running,
-			"socket_path": sockPath,
+			"running":          running,
+			"socket_path":      sockPath,
+			"primary_unlocked": unlocked,
+			"ready":            running && unlocked,
 		}
 		data, _ := json.MarshalIndent(payload, "", "  ")
 		fmt.Println(string(data))
@@ -102,6 +108,16 @@ func CmdDaemonStatus(jsonOutput bool) error {
 	if running {
 		state = "running"
 	}
-	fmt.Printf("Daemon:  %s\nSocket:  %s\n", state, sockPath)
+	lockState := "locked"
+	if unlocked {
+		lockState = "unlocked"
+	}
+	fmt.Printf("Daemon:  %s\nSocket:  %s\nPrimary: %s\n", state, sockPath, lockState)
+	if !running {
+		fmt.Println("Next:    run `hort daemon install` to have launchd/systemd keep it alive")
+	}
+	if !unlocked {
+		fmt.Println("Next:    run `hort unlock` to use secrets")
+	}
 	return nil
 }

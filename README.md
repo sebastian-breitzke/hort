@@ -74,7 +74,12 @@ hort init
 go install github.com/sebastian-breitzke/hort/cmd/hort@latest && hort init
 ```
 
-After `hort init` you'll set a passphrase — that's it. Vault created, session unlocked, ready to store secrets.
+After `hort init` you'll set a passphrase — that's it. Vault created, session
+unlocked, ready to store secrets.
+
+For apps that hit hort often, run `hort daemon install` once (macOS launchd /
+Linux systemd user unit). From then on the daemon starts at login, stays
+alive, and every CLI call routes through its Unix socket automatically.
 
 ## Usage
 
@@ -191,17 +196,43 @@ hort source unmount --name fachwerk-heine
 
 The vault file itself stays on disk between unmounts — unmount only clears the cached key and removes the registry entry. Mount names must be lowercase `a-z0-9._-`. `primary` is reserved.
 
-### Daemon (optional)
+### Daemon
 
-Frequent callers (e.g. an app resolving dozens of secrets per request) can start a background daemon to avoid spawning a fresh CLI process per call:
+Apps that resolve dozens of secrets per request benefit from a long-running
+daemon instead of spawning a fresh CLI per call. Hort can install itself as a
+user-level service so this is transparent:
 
 ```bash
-hort daemon start        # foreground — wrap with launchd/systemd/nohup for background
-hort daemon status       # is the socket responsive?
-hort daemon stop         # SIGTERM the running daemon
+hort daemon install     # macOS: ~/Library/LaunchAgents; Linux: ~/.config/systemd/user
+hort daemon status      # running + primary-vault-unlocked in one shot
+hort daemon uninstall   # removes the launchd agent / systemd unit
 ```
 
-When the daemon is running, every `hort --secret`/`--set-secret`/`--list` invocation detects the socket at `~/.hort/daemon.sock` and routes the request through it instead of reading the vault file directly. If the daemon is not running, the CLI transparently falls back to file access — no configuration needed.
+After `install` the daemon runs at login and stays alive across reboots. Every
+`hort --secret` / `--set-secret` / `--list` call detects the socket at
+`~/.hort/daemon.sock` and routes through it automatically; if the daemon is
+not running the CLI falls back to direct file access — apps don't need to
+care which path is used.
+
+For one-shot or CI use, `hort daemon start` still runs the daemon in the
+foreground. `--system` on `install`/`uninstall` switches to
+`/Library/LaunchDaemons` or `/etc/systemd/system` (requires root).
+
+Apps integrating Hort can use `hort status --json` as a single readiness
+check:
+
+```json
+{
+  "daemon":  { "running": true,  "socket_path": "/Users/you/.hort/daemon.sock" },
+  "primary": { "unlocked": true, "vault_path":  "/Users/you/.hort/vault.enc",
+               "secret_count": 18, "config_count": 14 },
+  "ready": true
+}
+```
+
+`ready: true` means secrets can be resolved right now; `false` means the app
+should ask the user to run `hort unlock` (and, if `daemon.running` is also
+false, `hort daemon install`).
 
 ## Agent Integration
 
