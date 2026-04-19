@@ -5,7 +5,8 @@ before:
     - go mod tidy
 
 builds:
-  - main: ./cmd/hort
+  - id: hort
+    main: ./cmd/hort
     binary: hort
     env:
       - CGO_ENABLED=0
@@ -19,8 +20,20 @@ builds:
     ldflags:
       - -s -w
 
+universal_binaries:
+  - id: hort-darwin-universal
+    ids:
+      - hort
+    replace: false
+    name_template: hort
+    hooks:
+      post:
+        - cmd: bash scripts/build-macos-app.sh "{{ .Path }}" icons/macos/hort.icns "{{ .Version }}" "dist/hort_{{ .Version }}_darwin_universal.zip"
+
 archives:
-  - formats:
+  - ids:
+      - hort
+    formats:
       - tar.gz
     format_overrides:
       - goos: windows
@@ -32,6 +45,8 @@ archives:
 
 nfpms:
   - id: hort
+    ids:
+      - hort
     package_name: hort
     vendor: s16e
     homepage: https://github.com/sebastian-breitzke/hort
@@ -52,6 +67,8 @@ nfpms:
 
 checksum:
   name_template: "checksums.txt"
+  extra_files:
+    - glob: ./dist/hort_*_darwin_universal.zip
 
 brews:
   - repository:
@@ -71,6 +88,8 @@ release:
   draft: false
   prerelease: auto
   mode: replace
+  extra_files:
+    - glob: ./dist/hort_*_darwin_universal.zip
 
 changelog:
   sort: asc
