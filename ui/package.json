@@ -1,7 +1,7 @@
 {
   "name": "hort-ui",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.4",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

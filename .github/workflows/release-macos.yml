@@ -117,6 +117,7 @@ jobs:
             homepage "https://github.com/sebastian-breitzke/hort"
 
             depends_on macos: ">= :catalina"
+            depends_on formula: "sebastian-breitzke/tap/hort"
 
             app "hort.app"
 

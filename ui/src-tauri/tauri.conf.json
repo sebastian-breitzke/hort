@@ -1,6 +1,6 @@
 {
   "productName": "Hort",
-  "version": "0.2.0",
+  "version": "0.2.4",
   "identifier": "de.s16e.hort",
   "build": {
     "frontendDist": "../dist",
@@ -10,7 +10,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["app", "dmg", "appimage"],
     "category": "DeveloperTool",
     "shortDescription": "Local secret and config store",
     "longDescription": "Hort desktop UI — browse, manage, and explore local secret and config vaults. Talks to the hort daemon over its Unix socket and mirrors every action back as the equivalent CLI command.",
