@@ -5,7 +5,7 @@ import (
 )
 
 func TestSourceRegistryPersistence(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHomeDir(t, t.TempDir())
 
 	recs, err := ListSources()
 	if err != nil {
@@ -57,7 +57,7 @@ func TestSourceRegistryPersistence(t *testing.T) {
 }
 
 func TestInvalidSourceNames(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHomeDir(t, t.TempDir())
 
 	cases := []string{"", "primary", "UPPER", "has space", "-lead", ".lead"}
 	for _, name := range cases {
@@ -68,7 +68,7 @@ func TestInvalidSourceNames(t *testing.T) {
 }
 
 func TestMountedRefReservesPrimary(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHomeDir(t, t.TempDir())
 	if _, err := MountedRefAt("primary", "/tmp/x.enc"); err == nil {
 		t.Fatal("expected error mounting reserved name 'primary'")
 	}

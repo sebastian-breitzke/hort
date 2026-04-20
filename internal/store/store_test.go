@@ -8,9 +8,17 @@ import (
 	"github.com/s16e/hort/internal/vault"
 )
 
+// setHomeDir points os.UserHomeDir() at dir on every platform. On Windows it
+// reads USERPROFILE first; on Unix it reads HOME.
+func setHomeDir(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+}
+
 func primarySetup(t *testing.T) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	setHomeDir(t, t.TempDir())
 	ref, err := vault.PrimaryRef()
 	if err != nil {
 		t.Fatalf("PrimaryRef(): %v", err)

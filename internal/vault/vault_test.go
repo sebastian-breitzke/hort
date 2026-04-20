@@ -15,8 +15,17 @@ func primaryRefOrFatal(t *testing.T) VaultRef {
 	return ref
 }
 
+// setHomeDir points os.UserHomeDir() at dir on every platform. On Windows it
+// reads USERPROFILE first; on Unix it reads HOME. We set both so the same
+// test helper works in CI across OSes.
+func setHomeDir(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+}
+
 func TestWriteLockBlocksConcurrentWriter(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHomeDir(t, t.TempDir())
 	ref := primaryRefOrFatal(t)
 
 	unlock, err := lockVault(ref)
@@ -64,7 +73,7 @@ func TestWriteLockBlocksConcurrentWriter(t *testing.T) {
 }
 
 func TestSaveVaultCreatesBackup(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHomeDir(t, t.TempDir())
 	ref := primaryRefOrFatal(t)
 
 	key, err := CreatePrimaryVault([]byte("passphrase"))
@@ -103,7 +112,7 @@ func TestSaveVaultCreatesBackup(t *testing.T) {
 }
 
 func TestCreateV2RawKeyRoundTrip(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHomeDir(t, t.TempDir())
 
 	ref, err := MountedRefAt("test", t.TempDir()+"/test.enc")
 	if err != nil {
@@ -151,7 +160,7 @@ func TestCreateV2RawKeyRoundTrip(t *testing.T) {
 }
 
 func TestCreatePrimaryVaultArgonRoundTrip(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setHomeDir(t, t.TempDir())
 	ref := primaryRefOrFatal(t)
 
 	pass := []byte("correct horse battery staple")
