@@ -72,15 +72,17 @@ brews:
     test: |
       assert_match "hort", shell_output("#{bin}/hort --help")
 
-scoops:
-  - repository:
-      owner: sebastian-breitzke
-      name: scoop-bucket
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    directory: bucket
-    homepage: "https://github.com/sebastian-breitzke/hort"
-    description: "Local secret and config store for humans and AI agents"
-    license: MIT
+# scoop manifests (temporarily disabled — re-enable once SCOOP_BUCKET_TOKEN is
+# provisioned with write access to sebastian-breitzke/scoop-bucket):
+# scoops:
+#   - repository:
+#       owner: sebastian-breitzke
+#       name: scoop-bucket
+#       token: "{{ .Env.SCOOP_BUCKET_TOKEN }}"
+#     directory: bucket
+#     homepage: "https://github.com/sebastian-breitzke/hort"
+#     description: "Local secret and config store for humans and AI agents"
+#     license: MIT
 
 release:
   draft: false

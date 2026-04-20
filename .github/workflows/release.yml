@@ -32,7 +32,6 @@ jobs:
 
   ui:
     name: UI (Tauri) - ${{ matrix.platform }}
-    needs: cli
     strategy:
       fail-fast: false
       matrix:

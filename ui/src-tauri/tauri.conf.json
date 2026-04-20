@@ -1,6 +1,6 @@
 {
   "productName": "Hort",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "identifier": "de.s16e.hort",
   "build": {
     "frontendDist": "../dist",
