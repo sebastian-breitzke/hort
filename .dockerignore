@@ -1,0 +1,27 @@
+# Keep the build context lean for the Dockerfile.
+.git
+.github
+.claude
+.vscode
+.idea
+.DS_Store
+**/.DS_Store
+
+# Build artefacts not needed for `go build`
+hort
+hort.exe
+dist
+ui/node_modules
+ui/dist
+ui/src-tauri/target
+
+# Tests/Docs/Packaging not needed by the daemon image
+*.png
+*.icns
+packaging
+scripts
+npm
+icons
+logo-prompts.md
+README.md
+LICENSE
