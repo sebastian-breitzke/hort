@@ -16,10 +16,13 @@
 #     -v hort-socket:/run/hort \
 #     ghcr.io/s16e/hort:dev
 
-ARG GO_VERSION=1.22
+ARG GO_VERSION=1.26
 ARG DEBIAN_VERSION=bookworm-20241016-slim
 
 FROM golang:${GO_VERSION}-bookworm AS builder
+
+# Let Go auto-download a newer toolchain if go.mod requires one.
+ENV GOTOOLCHAIN=auto
 
 WORKDIR /src
 

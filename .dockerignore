@@ -15,10 +15,10 @@ ui/node_modules
 ui/dist
 ui/src-tauri/target
 
-# Tests/Docs/Packaging not needed by the daemon image
+# Docs and tooling not needed for the daemon image.
+# `packaging/` stays in the context because internal/cli imports it.
 *.png
 *.icns
-packaging
 scripts
 npm
 icons
