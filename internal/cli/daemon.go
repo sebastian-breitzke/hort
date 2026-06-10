@@ -13,8 +13,10 @@ import (
 
 // CmdDaemonStart runs the daemon in the foreground. Users who want background
 // operation should wrap this with their own process manager (launchd/systemd),
-// or run it under `nohup ... &`.
-func CmdDaemonStart() error {
+// or run it under `nohup ... &`. A non-empty tcpAddr additionally opens a
+// token-authenticated, read-only TCP listener for clients that cannot reach
+// the Unix socket (e.g. Docker containers on macOS).
+func CmdDaemonStart(tcpAddr string) error {
 	sockPath, err := daemon.SocketPath()
 	if err != nil {
 		return err
@@ -39,6 +41,19 @@ func CmdDaemonStart() error {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "Hort daemon listening on %s (pid %d)\n", sockPath, os.Getpid())
+	if tcpAddr != "" {
+		token, err := daemon.EnsureToken()
+		if err != nil {
+			_ = srv.Close()
+			return err
+		}
+		if err := srv.StartTCP(tcpAddr, token); err != nil {
+			_ = srv.Close()
+			return err
+		}
+		tokenPath, _ := daemon.TokenPath()
+		fmt.Fprintf(os.Stderr, "Hort daemon TCP (token-authenticated, read-only) on %s, token %s\n", tcpAddr, tokenPath)
+	}
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, shutdownSignals()...)

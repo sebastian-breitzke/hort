@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"bufio"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,11 +17,26 @@ import (
 )
 
 // Server is the Hort background daemon. It holds live session state in memory
-// and answers multi-source read/write requests over a Unix socket.
+// and answers multi-source read/write requests over a Unix socket. An optional
+// TCP listener serves a restricted, token-authenticated read-only subset for
+// clients that cannot reach the Unix socket (e.g. Docker containers on macOS,
+// where Docker Desktop does not pass host Unix sockets through its VM).
 type Server struct {
-	socketPath string
-	listener   net.Listener
-	mu         sync.Mutex
+	socketPath  string
+	listener    net.Listener
+	tcpAddr     string
+	tcpToken    string
+	tcpListener net.Listener
+	mu          sync.Mutex
+}
+
+// tcpMethods is the allowlist for the restricted TCP transport: reads only.
+// Writes, deletes and discovery (list/describe leak entry names) stay
+// Unix-socket-only.
+var tcpMethods = map[string]bool{
+	MethodGetSecret: true,
+	MethodGetConfig: true,
+	MethodStatus:    true,
 }
 
 // NewServer constructs a Server. Caller must call Start and Close.
@@ -46,22 +62,50 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// Serve accepts connections until the listener is closed.
+// StartTCP additionally listens on a TCP address. Connections on this
+// listener must authenticate every request with the given token and are
+// limited to the read-only tcpMethods allowlist. Call after Start, before
+// Serve.
+func (s *Server) StartTCP(addr, token string) error {
+	if token == "" {
+		return errors.New("tcp listener requires a non-empty token")
+	}
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("listen on tcp %s: %w", addr, err)
+	}
+	s.tcpAddr = addr
+	s.tcpToken = token
+	s.tcpListener = l
+	return nil
+}
+
+// Serve accepts connections until the listeners are closed.
 func (s *Server) Serve() error {
+	if s.tcpListener != nil {
+		go s.serveListener(s.tcpListener, true)
+	}
+	return s.serveListener(s.listener, false)
+}
+
+func (s *Server) serveListener(l net.Listener, restricted bool) error {
 	for {
-		conn, err := s.listener.Accept()
+		conn, err := l.Accept()
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
 				return nil
 			}
 			return err
 		}
-		go s.handle(conn)
+		go s.handle(conn, restricted)
 	}
 }
 
-// Close stops the listener and removes the socket file.
+// Close stops the listeners and removes the socket file.
 func (s *Server) Close() error {
+	if s.tcpListener != nil {
+		_ = s.tcpListener.Close()
+	}
 	if s.listener == nil {
 		return nil
 	}
@@ -70,7 +114,7 @@ func (s *Server) Close() error {
 	return err
 }
 
-func (s *Server) handle(conn net.Conn) {
+func (s *Server) handle(conn net.Conn, restricted bool) {
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
@@ -87,11 +131,32 @@ func (s *Server) handle(conn net.Conn) {
 			writeError(writer, fmt.Sprintf("invalid request: %v", err))
 			continue
 		}
+		if restricted {
+			if denied, resp := s.gateRestricted(&req); denied {
+				if err := writeResponse(writer, resp); err != nil {
+					return
+				}
+				continue
+			}
+		}
 		resp := s.dispatch(&req)
 		if err := writeResponse(writer, resp); err != nil {
 			return
 		}
 	}
+}
+
+// gateRestricted enforces token auth and the read-only method allowlist for
+// TCP connections. Token check first so unauthenticated probes learn nothing
+// about which methods exist.
+func (s *Server) gateRestricted(req *Request) (bool, Response) {
+	if subtle.ConstantTimeCompare([]byte(req.Token), []byte(s.tcpToken)) != 1 {
+		return true, errResp(errors.New("invalid or missing token"))
+	}
+	if !tcpMethods[req.Method] {
+		return true, errResp(fmt.Errorf("method %q not allowed over tcp", req.Method))
+	}
+	return false, Response{}
 }
 
 func (s *Server) dispatch(req *Request) Response {

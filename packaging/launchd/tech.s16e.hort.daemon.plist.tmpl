@@ -15,6 +15,10 @@
         <string>{{.BinaryPath}}</string>
         <string>daemon</string>
         <string>start</string>
+{{- if .TCPAddr}}
+        <string>--tcp</string>
+        <string>{{.TCPAddr}}</string>
+{{- end}}
     </array>
 
     <!-- Start when the user logs in and keep it alive. -->
