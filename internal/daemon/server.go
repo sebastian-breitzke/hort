@@ -9,7 +9,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"sync"
 
 	"github.com/s16e/hort/internal/helptext"
 	"github.com/s16e/hort/internal/store"
@@ -27,7 +26,6 @@ type Server struct {
 	tcpAddr     string
 	tcpToken    string
 	tcpListener net.Listener
-	mu          sync.Mutex
 }
 
 // tcpMethods is the allowlist for the restricted TCP transport: reads only.
@@ -159,10 +157,12 @@ func (s *Server) gateRestricted(req *Request) (bool, Response) {
 	return false, Response{}
 }
 
+// dispatch handles requests concurrently without daemon-level locking: writes
+// are serialized per vault by the flock in vault.UpdateVault, and readers are
+// safe against concurrent writers because vault files are replaced atomically
+// (temp file + rename). This keeps a slow vault open — e.g. a mounted source
+// on a sleeping external volume — from stalling requests that don't touch it.
 func (s *Server) dispatch(req *Request) Response {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	st, err := store.NewFromSession()
 	if err != nil {
 		return errResp(err)
