@@ -12,8 +12,8 @@ READ (merged across all unlocked sources):
   hort --config <name> [--env <env>] [--context <ctx>] [--source <name>]   Get a config (stdout only)
 
 WRITE (targets --source, defaults to primary):
-  hort --set-secret <name> --value <v> [--env <env>] [--context <ctx>] [--description <d>] [--source <name>]
-  hort --set-config <name> --value <v> [--env <env>] [--context <ctx>] [--description <d>] [--source <name>]
+  hort --set-secret <name> (--value <v> | --value-stdin) [--env <env>] [--context <ctx>] [--description <d>] [--source <name>]
+  hort --set-config <name> (--value <v> | --value-stdin) [--env <env>] [--context <ctx>] [--description <d>] [--source <name>]
 
 DISCOVER:
   hort --list [--type secret|config]     List entries across all unlocked sources (prefixed with [source])
@@ -45,6 +45,7 @@ FLAGS:
   --source <name>       Target a specific source. Required for writes into mounted sources,
                         and for disambiguating reads when a name exists in multiple sources.
   --value <value>       Value to store
+  --value-stdin         Read the value to store from stdin (keeps secrets out of argv)
   --description <text>  Human-readable description for discovery
   --type <secret|config> Filter --list by entry type
   --json                Machine-readable JSON output for --list, --describe, status
@@ -89,7 +90,8 @@ AGENT INSTRUCTIONS:
      get an ambiguity error; add '--source <name>' to pick one.
 
   3. Writing: '--set-secret' / '--set-config' write to the primary vault by
-     default. Pass '--source <name>' to write into a mounted source.
+     default. Pipe sensitive values to '--value-stdin' so they never appear in
+     process arguments. Pass '--source <name>' to write into a mounted source.
 
   4. Error handling:
      - Exit code 0: success, value on stdout

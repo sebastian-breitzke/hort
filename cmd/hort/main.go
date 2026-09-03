@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/s16e/hort/internal/cli"
@@ -11,20 +12,21 @@ import (
 
 func main() {
 	var (
-		flagSecret    string
-		flagConfig    string
-		flagSetSecret string
-		flagSetConfig string
-		flagEnv       string
-		flagContext   string
-		flagValue     string
-		flagDesc      string
-		flagList      bool
-		flagDescribe  string
-		flagDelete    string
-		flagType      string
-		flagJSON      bool
-		flagSource    string
+		flagSecret     string
+		flagConfig     string
+		flagSetSecret  string
+		flagSetConfig  string
+		flagEnv        string
+		flagContext    string
+		flagValue      string
+		flagValueStdin bool
+		flagDesc       string
+		flagList       bool
+		flagDescribe   string
+		flagDelete     string
+		flagType       string
+		flagJSON       bool
+		flagSource     string
 	)
 
 	root := &cobra.Command{
@@ -39,16 +41,18 @@ func main() {
 				return cli.CmdGetConfig(flagConfig, flagEnv, flagContext, flagSource)
 			}
 			if flagSetSecret != "" {
-				if flagValue == "" {
-					return fmt.Errorf("--value is required with --set-secret")
+				value, err := writeValue(flagValue, flagValueStdin, cmd.InOrStdin())
+				if err != nil {
+					return fmt.Errorf("set secret: %w", err)
 				}
-				return cli.CmdSetSecret(flagSetSecret, flagValue, flagEnv, flagContext, flagDesc, flagSource)
+				return cli.CmdSetSecret(flagSetSecret, value, flagEnv, flagContext, flagDesc, flagSource)
 			}
 			if flagSetConfig != "" {
-				if flagValue == "" {
-					return fmt.Errorf("--value is required with --set-config")
+				value, err := writeValue(flagValue, flagValueStdin, cmd.InOrStdin())
+				if err != nil {
+					return fmt.Errorf("set config: %w", err)
 				}
-				return cli.CmdSetConfig(flagSetConfig, flagValue, flagEnv, flagContext, flagDesc, flagSource)
+				return cli.CmdSetConfig(flagSetConfig, value, flagEnv, flagContext, flagDesc, flagSource)
 			}
 			if flagList {
 				return cli.CmdList(flagType, flagJSON)
@@ -73,6 +77,7 @@ func main() {
 	root.Flags().StringVar(&flagSetSecret, "set-secret", "", "Store a secret")
 	root.Flags().StringVar(&flagSetConfig, "set-config", "", "Store a config")
 	root.Flags().StringVar(&flagValue, "value", "", "Value to store")
+	root.Flags().BoolVar(&flagValueStdin, "value-stdin", false, "Read the value to store from stdin")
 	root.Flags().StringVar(&flagDesc, "description", "", "Description for discovery")
 
 	// Common flags
@@ -250,4 +255,24 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func writeValue(flagValue string, valueStdin bool, stdin io.Reader) (string, error) {
+	if flagValue != "" && valueStdin {
+		return "", fmt.Errorf("--value and --value-stdin are mutually exclusive")
+	}
+	if valueStdin {
+		value, err := io.ReadAll(stdin)
+		if err != nil {
+			return "", fmt.Errorf("read --value-stdin: %w", err)
+		}
+		if len(value) == 0 {
+			return "", fmt.Errorf("stdin value must not be empty")
+		}
+		return string(value), nil
+	}
+	if flagValue == "" {
+		return "", fmt.Errorf("--value or --value-stdin is required")
+	}
+	return flagValue, nil
 }
