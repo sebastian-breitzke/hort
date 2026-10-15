@@ -1,8 +1,0 @@
-{
-  "identifier": "default",
-  "description": "Default capabilities for Hort UI",
-  "windows": ["main"],
-  "permissions": [
-    "core:default"
-  ]
-}

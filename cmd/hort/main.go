@@ -203,11 +203,9 @@ func main() {
 		Use:   "start",
 		Short: "Run the daemon in the foreground",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			tcpAddr, _ := cmd.Flags().GetString("tcp")
-			return cli.CmdDaemonStart(tcpAddr)
+			return cli.CmdDaemonStart()
 		},
 	}
-	daemonStartCmd.Flags().String("tcp", "", "Additionally listen on this TCP address (token-authenticated, read-only), e.g. 127.0.0.1:7766")
 	daemonCmd.AddCommand(daemonStartCmd)
 	daemonCmd.AddCommand(&cobra.Command{
 		Use:   "stop",
@@ -235,12 +233,10 @@ func main() {
 			"Idempotent — safe to re-run after upgrades.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			system, _ := cmd.Flags().GetBool("system")
-			tcpAddr, _ := cmd.Flags().GetString("tcp")
-			return cli.CmdDaemonInstall(system, tcpAddr)
+			return cli.CmdDaemonInstall(system)
 		},
 	}
 	daemonInstallCmd.Flags().Bool("system", false, "Install system-wide (requires root; default is user-level)")
-	daemonInstallCmd.Flags().String("tcp", "", "Bake a TCP listen address into the service (token-authenticated, read-only), e.g. 127.0.0.1:7766")
 	daemonCmd.AddCommand(daemonInstallCmd)
 
 	daemonUninstallCmd := &cobra.Command{

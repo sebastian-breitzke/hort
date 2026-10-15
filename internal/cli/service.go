@@ -27,9 +27,6 @@ type ServiceParams struct {
 	StderrLog  string
 	WantedBy   string
 	System     bool
-	// TCPAddr, when non-empty, bakes `--tcp <addr>` into the service so the
-	// daemon also serves the token-authenticated read-only TCP transport.
-	TCPAddr string
 }
 
 // RenderLaunchdPlist returns the fully rendered launchd plist.
@@ -68,7 +65,7 @@ func resolveBinary() (string, error) {
 	return resolved, nil
 }
 
-func paramsForUserInstall(tcpAddr string) (ServiceParams, error) {
+func paramsForUserInstall() (ServiceParams, error) {
 	bin, err := resolveBinary()
 	if err != nil {
 		return ServiceParams{}, err
@@ -90,11 +87,10 @@ func paramsForUserInstall(tcpAddr string) (ServiceParams, error) {
 		StderrLog:  filepath.Join(hortDir, "daemon.err.log"),
 		WantedBy:   "default.target",
 		System:     false,
-		TCPAddr:    tcpAddr,
 	}, nil
 }
 
-func paramsForSystemInstall(tcpAddr string) (ServiceParams, error) {
+func paramsForSystemInstall() (ServiceParams, error) {
 	bin, err := resolveBinary()
 	if err != nil {
 		return ServiceParams{}, err
@@ -108,19 +104,18 @@ func paramsForSystemInstall(tcpAddr string) (ServiceParams, error) {
 		StderrLog:  "/var/log/hort-daemon.err.log",
 		WantedBy:   "multi-user.target",
 		System:     true,
-		TCPAddr:    tcpAddr,
 	}, nil
 }
 
 // CmdDaemonInstall writes the service definition for the current platform and
 // activates it. Idempotent: if the service is already loaded, it is reloaded
 // with the freshly rendered file.
-func CmdDaemonInstall(systemWide bool, tcpAddr string) error {
+func CmdDaemonInstall(systemWide bool) error {
 	switch runtime.GOOS {
 	case "darwin":
-		return installLaunchd(systemWide, tcpAddr)
+		return installLaunchd(systemWide)
 	case "linux":
-		return installSystemd(systemWide, tcpAddr)
+		return installSystemd(systemWide)
 	default:
 		return fmt.Errorf("`hort daemon install` is not supported on %s yet — run `hort daemon start` manually or wrap it in your own supervisor", runtime.GOOS)
 	}
@@ -157,13 +152,13 @@ func launchdDomain(system bool) (string, error) {
 	return "gui/" + strconv.Itoa(os.Getuid()), nil
 }
 
-func installLaunchd(system bool, tcpAddr string) error {
+func installLaunchd(system bool) error {
 	var params ServiceParams
 	var err error
 	if system {
-		params, err = paramsForSystemInstall(tcpAddr)
+		params, err = paramsForSystemInstall()
 	} else {
-		params, err = paramsForUserInstall(tcpAddr)
+		params, err = paramsForUserInstall()
 	}
 	if err != nil {
 		return err
@@ -246,13 +241,13 @@ func systemctlArgs(system bool, rest ...string) []string {
 	return append([]string{"--user"}, rest...)
 }
 
-func installSystemd(system bool, tcpAddr string) error {
+func installSystemd(system bool) error {
 	var params ServiceParams
 	var err error
 	if system {
-		params, err = paramsForSystemInstall(tcpAddr)
+		params, err = paramsForSystemInstall()
 	} else {
-		params, err = paramsForUserInstall(tcpAddr)
+		params, err = paramsForUserInstall()
 	}
 	if err != nil {
 		return err

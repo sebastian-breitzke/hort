@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart={{.BinaryPath}} daemon start{{if .TCPAddr}} --tcp {{.TCPAddr}}{{end}}
+ExecStart={{.BinaryPath}} daemon start
 Restart=on-failure
 RestartSec=5
 Environment=PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin

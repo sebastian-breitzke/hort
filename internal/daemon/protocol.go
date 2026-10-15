@@ -1,12 +1,10 @@
 package daemon
 
 // Request is the JSON-RPC-lite message body sent by a client to the daemon.
-// Token is only required on restricted transports (TCP); Unix-socket
-// connections are authenticated by file permissions and ignore it.
+// Unix-socket connections are authenticated by file permissions.
 type Request struct {
 	Method string         `json:"method"`
 	Params map[string]any `json:"params,omitempty"`
-	Token  string         `json:"token,omitempty"`
 }
 
 // Response carries either a result or an error string.
