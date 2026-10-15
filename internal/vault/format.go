@@ -21,15 +21,11 @@ const (
 )
 
 const (
-	// V1 layout: [salt:32][time:4][memory:4][threads:1][nonce:12][ciphertext+tag:...]
-	V1HeaderSize = SaltSize + 4 + 4 + 1 + NonceSize
-
-	// V2 layout: [magic:4][version:1][kdf:1][salt:32][time:4][memory:4][threads:1][nonce:12][ciphertext+tag:...]
+	// Layout: [magic:4][version:1][kdf:1][salt:32][time:4][memory:4][threads:1][nonce:12][ciphertext+tag:...]
 	V2HeaderSize = len(V2Magic) + 1 + 1 + SaltSize + 4 + 4 + 1 + NonceSize
 )
 
-// V2Magic is the 4-byte prefix that marks a v2 vault file. Legacy v1 files have
-// no magic prefix and are detected by the absence of this signature.
+// V2Magic is the 4-byte prefix that marks a vault file.
 const V2Magic = "HRT\x02"
 
 // FormatInfo describes the header of a vault file after parsing.
@@ -43,7 +39,6 @@ type FormatInfo struct {
 }
 
 // ParseFormat inspects the vault file header and returns layout information.
-// It works for both v1 (legacy, no magic) and v2 vaults.
 func ParseFormat(data []byte) (FormatInfo, error) {
 	if len(data) >= len(V2Magic) && string(data[0:len(V2Magic)]) == V2Magic {
 		if len(data) < V2HeaderSize {
@@ -78,32 +73,7 @@ func ParseFormat(data []byte) (FormatInfo, error) {
 		}, nil
 	}
 
-	if len(data) < V1HeaderSize {
-		return FormatInfo{}, errors.New("vault file too short")
-	}
-	return FormatInfo{
-		Version: 1,
-		KDF:     KDFArgon2id,
-		Salt:    data[0:SaltSize],
-		Argon: ArgonParams{
-			Time:    binary.BigEndian.Uint32(data[SaltSize : SaltSize+4]),
-			Memory:  binary.BigEndian.Uint32(data[SaltSize+4 : SaltSize+8]),
-			Threads: data[SaltSize+8],
-		},
-		Nonce:    data[SaltSize+9 : V1HeaderSize],
-		CipherAt: V1HeaderSize,
-	}, nil
-}
-
-// buildV1Header serializes a v1 header (legacy format, Argon2id only).
-func buildV1Header(salt []byte, params ArgonParams, nonce []byte) []byte {
-	h := make([]byte, V1HeaderSize)
-	copy(h[0:SaltSize], salt)
-	binary.BigEndian.PutUint32(h[SaltSize:SaltSize+4], params.Time)
-	binary.BigEndian.PutUint32(h[SaltSize+4:SaltSize+8], params.Memory)
-	h[SaltSize+8] = params.Threads
-	copy(h[SaltSize+9:], nonce)
-	return h
+	return FormatInfo{}, errors.New("not a hort vault file (unsupported or legacy format)")
 }
 
 // buildV2Header serializes a v2 header.

@@ -96,8 +96,7 @@ go install github.com/sebastian-breitzke/hort/cmd/hort@latest && hort init
 After `hort init` you'll set a passphrase — that's it. Vault created, session
 unlocked, ready to store secrets.
 
-For apps that hit hort often, run `hort daemon install` once (macOS launchd /
-Linux systemd user unit). From then on the daemon starts at login, stays
+For apps that hit hort often, run `hort daemon install` once (macOS launchd agent). From then on the daemon starts at login, stays
 alive, and every CLI call routes through its Unix socket automatically.
 
 ## Usage
@@ -222,9 +221,9 @@ daemon instead of spawning a fresh CLI per call. Hort can install itself as a
 user-level service so this is transparent:
 
 ```bash
-hort daemon install     # macOS: ~/Library/LaunchAgents; Linux: ~/.config/systemd/user
+hort daemon install     # macOS: ~/Library/LaunchAgents
 hort daemon status      # running + primary-vault-unlocked in one shot
-hort daemon uninstall   # removes the launchd agent / systemd unit
+hort daemon uninstall   # removes the launchd agent
 ```
 
 After `install` the daemon runs at login and stays alive across reboots. Every
@@ -235,7 +234,7 @@ care which path is used.
 
 For one-shot or CI use, `hort daemon start` still runs the daemon in the
 foreground. `--system` on `install`/`uninstall` switches to
-`/Library/LaunchDaemons` or `/etc/systemd/system` (requires root).
+`/Library/LaunchDaemons` (requires root).
 
 Apps integrating Hort can use `hort status --json` as a single readiness
 check:
@@ -290,7 +289,7 @@ hort unlock  # no terminal prompt
 cmd/hort/main.go            CLI entry point (Cobra)
 internal/
 ├── vault/
-│   ├── crypto.go            AES-256-GCM encrypt/decrypt, Argon2id KDF, v1/v2 format parsing
+│   ├── crypto.go            AES-256-GCM encrypt/decrypt, Argon2id KDF, v2 format parsing
 │   ├── format.go            v2 header layout + KDF flag
 │   ├── vault.go             VaultRef, load/save/update by ref, primary helpers
 │   ├── sources.go           Mounted-source registry (~/.hort/sources/index.json)
@@ -306,7 +305,7 @@ internal/
 ├── cli/
 │   ├── commands.go          Command implementations (with transparent daemon routing)
 │   ├── daemon.go            `hort daemon start/stop/status`
-│   ├── service.go           `hort daemon install/uninstall` (launchd + systemd)
+│   ├── service.go           `hort daemon install/uninstall` (launchd)
 │   └── output.go            Output formatting (plain text + JSON)
 ├── helptext/
 │   └── text.go              The `hort --help` string — served to the CLI and the daemon
@@ -319,14 +318,8 @@ internal/
 Everything lives in a single file: `~/.hort/vault.enc`.
 Writes are serialized with a local file lock, and every successful update keeps the previous encrypted state in `~/.hort/vault.enc.bak`.
 
-**File format** (binary). Two variants are supported:
+**File format** (binary):
 
-v1 (legacy — only the primary vault created before multi-source support uses this):
-```
-[salt:32 bytes][argon2id-time:4][argon2id-memory:4][argon2id-threads:1][nonce:12][ciphertext+tag:...]
-```
-
-v2 (all new vaults incl. mounted sources):
 ```
 [magic:"HRT\x02"][version:1 byte][kdf:1 byte][salt:32][argon-time:4][argon-memory:4][argon-threads:1][nonce:12][ciphertext+tag:...]
 ```

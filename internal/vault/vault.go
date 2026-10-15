@@ -170,8 +170,8 @@ func CreateVault(ref VaultRef, material []byte, kdf KDFMode) ([]byte, error) {
 	return sessionKey, nil
 }
 
-// CreatePrimaryVault creates the primary vault with a passphrase (v1-style
-// Argon2id KDF, but written in v2 format for consistency).
+// CreatePrimaryVault creates the primary vault with a passphrase (Argon2id
+// KDF, v2 format).
 func CreatePrimaryVault(passphrase []byte) ([]byte, error) {
 	ref, err := PrimaryRef()
 	if err != nil {

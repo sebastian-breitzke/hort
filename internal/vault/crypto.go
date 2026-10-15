@@ -16,10 +16,6 @@ const (
 	NonceSize = 12 // AES-256-GCM standard nonce
 	KeySize   = 32 // AES-256
 
-	// HeaderSize is the legacy v1 header length. Retained as a named constant
-	// for external consumers; equivalent to V1HeaderSize.
-	HeaderSize = V1HeaderSize
-
 	DefaultArgonTime    = 3
 	DefaultArgonMemory  = 64 * 1024 // 64 MB
 	DefaultArgonThreads = 4
@@ -182,15 +178,7 @@ func EncryptPreservingFormat(plaintext, sessionKey, existingRaw []byte) ([]byte,
 	if err != nil {
 		return nil, err
 	}
-	var header []byte
-	switch info.Version {
-	case 1:
-		header = buildV1Header(info.Salt, info.Argon, nonce)
-	case 2:
-		header = buildV2Header(info.KDF, info.Salt, info.Argon, nonce)
-	default:
-		return nil, fmt.Errorf("unsupported vault version %d", info.Version)
-	}
+	header := buildV2Header(info.KDF, info.Salt, info.Argon, nonce)
 	return append(header, ciphertext...), nil
 }
 

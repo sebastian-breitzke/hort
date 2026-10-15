@@ -16,7 +16,7 @@ import (
 	"github.com/s16e/hort/packaging"
 )
 
-// ServiceParams is the data passed to the launchd / systemd templates.
+// ServiceParams is the data passed to the launchd template.
 // Exported so template-rendering tests can drive it directly.
 type ServiceParams struct {
 	BinaryPath string
@@ -25,18 +25,12 @@ type ServiceParams struct {
 	HortDir    string
 	StdoutLog  string
 	StderrLog  string
-	WantedBy   string
 	System     bool
 }
 
 // RenderLaunchdPlist returns the fully rendered launchd plist.
 func RenderLaunchdPlist(p ServiceParams) (string, error) {
 	return renderTemplate("launchd", packaging.LaunchdPlistTemplate, p)
-}
-
-// RenderSystemdUnit returns the fully rendered systemd unit file.
-func RenderSystemdUnit(p ServiceParams) (string, error) {
-	return renderTemplate("systemd", packaging.SystemdServiceTemplate, p)
 }
 
 func renderTemplate(name, body string, data any) (string, error) {
@@ -52,7 +46,7 @@ func renderTemplate(name, body string, data any) (string, error) {
 }
 
 // resolveBinary returns the absolute, symlink-resolved path of the running hort
-// binary. `launchctl` and `systemd` both want a concrete path in the unit file.
+// binary. `launchctl` wants a concrete path in the plist.
 func resolveBinary() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -85,7 +79,6 @@ func paramsForUserInstall() (ServiceParams, error) {
 		HortDir:    hortDir,
 		StdoutLog:  filepath.Join(hortDir, "daemon.out.log"),
 		StderrLog:  filepath.Join(hortDir, "daemon.err.log"),
-		WantedBy:   "default.target",
 		System:     false,
 	}, nil
 }
@@ -102,7 +95,6 @@ func paramsForSystemInstall() (ServiceParams, error) {
 		HortDir:    "/var/log",
 		StdoutLog:  "/var/log/hort-daemon.out.log",
 		StderrLog:  "/var/log/hort-daemon.err.log",
-		WantedBy:   "multi-user.target",
 		System:     true,
 	}, nil
 }
@@ -114,8 +106,6 @@ func CmdDaemonInstall(systemWide bool) error {
 	switch runtime.GOOS {
 	case "darwin":
 		return installLaunchd(systemWide)
-	case "linux":
-		return installSystemd(systemWide)
 	default:
 		return fmt.Errorf("`hort daemon install` is not supported on %s yet — run `hort daemon start` manually or wrap it in your own supervisor", runtime.GOOS)
 	}
@@ -127,8 +117,6 @@ func CmdDaemonUninstall(systemWide bool) error {
 	switch runtime.GOOS {
 	case "darwin":
 		return uninstallLaunchd(systemWide)
-	case "linux":
-		return uninstallSystemd(systemWide)
 	default:
 		return fmt.Errorf("`hort daemon uninstall` is not supported on %s", runtime.GOOS)
 	}
@@ -218,95 +206,6 @@ func uninstallLaunchd(system bool) error {
 	} else {
 		return err
 	}
-	return nil
-}
-
-// ---- systemd (Linux) -------------------------------------------------------
-
-func systemdUnitPath(system bool) (string, error) {
-	if system {
-		return filepath.Join("/etc/systemd/system", packaging.SystemdUnitName), nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".config", "systemd", "user", packaging.SystemdUnitName), nil
-}
-
-func systemctlArgs(system bool, rest ...string) []string {
-	if system {
-		return rest
-	}
-	return append([]string{"--user"}, rest...)
-}
-
-func installSystemd(system bool) error {
-	var params ServiceParams
-	var err error
-	if system {
-		params, err = paramsForSystemInstall()
-	} else {
-		params, err = paramsForUserInstall()
-	}
-	if err != nil {
-		return err
-	}
-
-	rendered, err := RenderSystemdUnit(params)
-	if err != nil {
-		return err
-	}
-
-	unitPath, err := systemdUnitPath(system)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(unitPath), 0755); err != nil {
-		return fmt.Errorf("creating %s: %w", filepath.Dir(unitPath), err)
-	}
-	if err := writeFileAtomic(unitPath, []byte(rendered), 0644); err != nil {
-		return fmt.Errorf("writing unit: %w", err)
-	}
-	if !system {
-		if err := os.MkdirAll(params.HortDir, 0700); err != nil {
-			return fmt.Errorf("creating %s: %w", params.HortDir, err)
-		}
-	}
-
-	if err := run("systemctl", systemctlArgs(system, "daemon-reload")...); err != nil {
-		return fmt.Errorf("systemctl daemon-reload: %w", err)
-	}
-	if err := run("systemctl", systemctlArgs(system, "enable", "--now", packaging.SystemdUnitName)...); err != nil {
-		return fmt.Errorf("systemctl enable --now: %w", err)
-	}
-
-	fmt.Fprintf(os.Stderr, "Installed systemd unit %s\n", unitPath)
-	fmt.Fprintf(os.Stderr, "Binary:   %s\n", params.BinaryPath)
-	fmt.Fprintf(os.Stderr, "Socket:   %s\n", socketPathOrBlank())
-	return nil
-}
-
-func uninstallSystemd(system bool) error {
-	unitPath, err := systemdUnitPath(system)
-	if err != nil {
-		return err
-	}
-
-	_ = runQuiet("systemctl", systemctlArgs(system, "disable", "--now", packaging.SystemdUnitName)...)
-
-	if _, err := os.Stat(unitPath); err == nil {
-		if err := os.Remove(unitPath); err != nil {
-			return fmt.Errorf("removing %s: %w", unitPath, err)
-		}
-		fmt.Fprintf(os.Stderr, "Removed %s\n", unitPath)
-	} else if errors.Is(err, os.ErrNotExist) {
-		fmt.Fprintln(os.Stderr, "No systemd unit installed.")
-	} else {
-		return err
-	}
-
-	_ = runQuiet("systemctl", systemctlArgs(system, "daemon-reload")...)
 	return nil
 }
 

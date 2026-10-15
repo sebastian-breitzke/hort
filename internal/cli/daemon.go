@@ -12,7 +12,7 @@ import (
 )
 
 // CmdDaemonStart runs the daemon in the foreground. Users who want background
-// operation should wrap this with their own process manager (launchd/systemd),
+// operation should wrap this with their own process manager (launchd),
 // or run it under `nohup ... &`.
 func CmdDaemonStart() error {
 	sockPath, err := daemon.SocketPath()
@@ -114,7 +114,7 @@ func CmdDaemonStatus(jsonOutput bool) error {
 	}
 	fmt.Printf("Daemon:  %s\nSocket:  %s\nPrimary: %s\n", state, sockPath, lockState)
 	if !running {
-		fmt.Println("Next:    run `hort daemon install` to have launchd/systemd keep it alive")
+		fmt.Println("Next:    run `hort daemon install` to have launchd keep it alive")
 	}
 	if !unlocked {
 		fmt.Println("Next:    run `hort unlock` to use secrets")

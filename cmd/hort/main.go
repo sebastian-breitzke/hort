@@ -227,8 +227,8 @@ func main() {
 
 	daemonInstallCmd := &cobra.Command{
 		Use:   "install",
-		Short: "Install a launchd agent (macOS) or systemd user unit (Linux)",
-		Long: "Install a launchd agent (macOS) or systemd user unit (Linux) that " +
+		Short: "Install a launchd agent (macOS)",
+		Long: "Install a launchd agent (macOS) that " +
 			"launches `hort daemon start` at login and keeps it alive. " +
 			"Idempotent — safe to re-run after upgrades.",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -241,7 +241,7 @@ func main() {
 
 	daemonUninstallCmd := &cobra.Command{
 		Use:   "uninstall",
-		Short: "Remove the launchd agent or systemd unit",
+		Short: "Remove the launchd agent",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			system, _ := cmd.Flags().GetBool("system")
 			return cli.CmdDaemonUninstall(system)
