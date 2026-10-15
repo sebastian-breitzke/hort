@@ -256,7 +256,7 @@ func CmdSetSecret(name, value, env, context, description, source string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintln(os.Stderr, "Secret stored.")
+		announceStored("secret", name, env, context, source)
 		return nil
 	}
 
@@ -264,7 +264,7 @@ func CmdSetSecret(name, value, env, context, description, source string) error {
 	if err := s.SetSecret(source, name, value, env, context, description); err != nil {
 		return err
 	}
-	fmt.Fprintln(os.Stderr, "Secret stored.")
+	announceStored("secret", name, env, context, source)
 	return nil
 }
 
@@ -277,7 +277,7 @@ func CmdSetConfig(name, value, env, context, description, source string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintln(os.Stderr, "Config stored.")
+		announceStored("config", name, env, context, source)
 		return nil
 	}
 
@@ -285,7 +285,7 @@ func CmdSetConfig(name, value, env, context, description, source string) error {
 	if err := s.SetConfig(source, name, value, env, context, description); err != nil {
 		return err
 	}
-	fmt.Fprintln(os.Stderr, "Config stored.")
+	announceStored("config", name, env, context, source)
 	return nil
 }
 

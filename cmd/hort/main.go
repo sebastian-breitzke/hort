@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/s16e/hort/internal/cli"
 	"github.com/s16e/hort/internal/helptext"
@@ -33,7 +34,11 @@ func main() {
 		Use:   "hort",
 		Short: "Hort — Local secret and config store for humans and AI agents",
 		Long:  helptext.HelpText,
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				return cli.CmdSearch(strings.Join(args, " "), flagJSON)
+			}
 			if flagSecret != "" {
 				return cli.CmdGetSecret(flagSecret, flagEnv, flagContext, flagSource)
 			}
@@ -70,20 +75,20 @@ func main() {
 	}
 
 	// Read flags
-	root.Flags().StringVar(&flagSecret, "secret", "", "Get a secret value")
+	root.Flags().StringVarP(&flagSecret, "secret", "g", "", "Get a secret value")
 	root.Flags().StringVar(&flagConfig, "config", "", "Get a config value")
 
 	// Write flags
-	root.Flags().StringVar(&flagSetSecret, "set-secret", "", "Store a secret")
-	root.Flags().StringVar(&flagSetConfig, "set-config", "", "Store a config")
-	root.Flags().StringVar(&flagValue, "value", "", "Value to store")
+	root.Flags().StringVarP(&flagSetSecret, "set-secret", "s", "", "Store a secret")
+	root.Flags().StringVarP(&flagSetConfig, "set-config", "k", "", "Store a config")
+	root.Flags().StringVarP(&flagValue, "value", "v", "", "Value to store")
 	root.Flags().BoolVar(&flagValueStdin, "value-stdin", false, "Read the value to store from stdin")
-	root.Flags().StringVar(&flagDesc, "description", "", "Description for discovery")
+	root.Flags().StringVarP(&flagDesc, "description", "d", "", "Description for discovery")
 
 	// Common flags
-	root.Flags().StringVar(&flagEnv, "env", "", "Target environment (default: * baseline)")
-	root.Flags().StringVar(&flagContext, "context", "", "Target context, e.g. tenant/customer (default: * baseline)")
-	root.Flags().StringVar(&flagSource, "source", "", "Target a specific source (primary by default for writes; required when reads are ambiguous)")
+	root.Flags().StringVarP(&flagEnv, "env", "e", "", "Target environment (default: * baseline)")
+	root.Flags().StringVarP(&flagContext, "context", "c", "", "Target context, e.g. tenant/customer (default: * baseline)")
+	root.Flags().StringVarP(&flagSource, "source", "S", "", "Target a specific source (primary by default for writes; required when reads are ambiguous)")
 
 	// Discovery flags
 	root.Flags().BoolVar(&flagList, "list", false, "List all entries")
