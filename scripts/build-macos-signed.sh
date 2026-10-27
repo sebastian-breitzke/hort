@@ -65,6 +65,17 @@ codesign "${SIGN_OPTS[@]}" "$APP/Contents/MacOS/hort"
 codesign "${SIGN_OPTS[@]}" "$APP"
 codesign --verify --verbose=2 --strict "$APP"
 
+# The notarization ticket reaches Apple's CloudKit a little after "Accepted";
+# stapling right away can fail with a lost connection, so retry briefly.
+staple() {
+    for attempt in 1 2 3 4 5; do
+        xcrun stapler staple "$1" && return 0
+        echo "staple attempt $attempt failed, retrying in 30s"
+        sleep 30
+    done
+    return 1
+}
+
 if [[ "$DO_NOTARIZE" == "1" ]]; then
     : "${APPLE_ID:?APPLE_ID not set}"
     : "${APPLE_TEAM_ID:?APPLE_TEAM_ID not set}"
@@ -80,7 +91,7 @@ if [[ "$DO_NOTARIZE" == "1" ]]; then
         --wait --timeout 30m
     rm "$NOTARY_ZIP"
     echo "==> stapling hort.app"
-    xcrun stapler staple "$APP"
+    staple "$APP"
     xcrun stapler validate "$APP"
 fi
 
@@ -104,7 +115,7 @@ if [[ "$DO_NOTARIZE" == "1" ]]; then
         --password "$APPLE_APP_SPECIFIC_PASSWORD" \
         --wait --timeout 30m
     echo "==> stapling DMG"
-    xcrun stapler staple "$DMG"
+    staple "$DMG"
     xcrun stapler validate "$DMG"
 fi
 
